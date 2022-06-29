@@ -27,7 +27,7 @@ dependencies:
 library:
   source-dirs: src
   generated-exposed-modules:
-    - Paths_secp256k1_haskell
+    - Paths_libsecp256k1
   pkg-config-dependencies:
     - libsecp256k1
 tests:
