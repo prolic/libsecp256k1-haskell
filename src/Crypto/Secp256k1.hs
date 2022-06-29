@@ -317,7 +317,7 @@ exportPubKey compress (PubKey in_bs) = unsafePerformIO $
         alloca $ \len_ptr ->
             allocaBytes len $ \out_ptr -> do
                 poke len_ptr $ fromIntegral len
-                ret <- Prim.ecPubKeySerialize Prim.ctx out_ptr len_ptr in_ptr flags
+                ret <- Prim.ecPubkeySerialize Prim.ctx out_ptr len_ptr in_ptr flags
                 unless (Prim.isSuccess ret) $ error "could not serialize public key"
                 final_len <- peek len_ptr
                 Prim.packByteString (out_ptr, final_len)
@@ -407,7 +407,7 @@ derivePubKey :: SecKey -> PubKey
 derivePubKey (SecKey sec_key) = unsafePerformIO $
     Prim.unsafeUseByteString sec_key $ \(sec_key_ptr, _) -> do
         pub_key_ptr <- mallocBytes 64
-        ret <- Prim.ecPubKeyCreate Prim.ctx pub_key_ptr sec_key_ptr
+        ret <- Prim.ecPubkeyCreate Prim.ctx pub_key_ptr sec_key_ptr
         unless (Prim.isSuccess ret) $ do
             free pub_key_ptr
             error "could not compute public key"
@@ -445,7 +445,7 @@ tweakAddPubKey :: PubKey -> Tweak -> Maybe PubKey
 tweakAddPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
     Prim.unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
         Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecPubKeyTweakAdd Prim.ctx pub_key_ptr tweak_ptr
+            ret <- Prim.ecPubkeyTweakAdd Prim.ctx pub_key_ptr tweak_ptr
             if Prim.isSuccess ret
                 then return (Just (PubKey new_bs))
                 else return Nothing
@@ -459,7 +459,7 @@ tweakMulPubKey :: PubKey -> Tweak -> Maybe PubKey
 tweakMulPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
     Prim.unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
         Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecPubKeyTweakMul Prim.ctx pub_key_ptr tweak_ptr
+            ret <- Prim.ecPubkeyTweakMul Prim.ctx pub_key_ptr tweak_ptr
             if Prim.isSuccess ret
                 then return (Just (PubKey new_bs))
                 else return Nothing
@@ -475,7 +475,7 @@ combinePubKeys pubs = unsafePerformIO $
         allocaArray (length ps) $ \a -> do
             out <- mallocBytes 64
             pokeArray a ps
-            ret <- Prim.ecPubKeyCombine Prim.ctx out a (fromIntegral $ length ps)
+            ret <- Prim.ecPubkeyCombine Prim.ctx out a (fromIntegral $ length ps)
             if Prim.isSuccess ret
                 then do
                     bs <- Prim.unsafePackByteString (out, 64)
