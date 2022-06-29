@@ -1,15 +1,15 @@
-name: secp256k1-haskell
-version: 0.6.1
+name: libsecp256k1
+version: 0.0.0
 synopsis: Bindings for secp256k1
 description: Sign and verify signatures using the secp256k1 library.
 category: Crypto
-author: Jean-Pierre Rupp
-maintainer: jprupp@protonmail.ch
-copyright: (c) 2017 Jean-Pierre Rupp
+author: Keagan McClelland
+maintainer: keagan.mcclelland@gmail.com
+copyright: (c) 2017 Jean-Pierre Rupp; (c) 2020 Haskoin Developers; (c) 2022 Keagan McClelland
 license: MIT
 license-file: LICENSE
-github: haskoin/secp256k1-haskell.git
-homepage: http://github.com/haskoin/secp256k1-haskell#readme
+github: ProofOfKeags/libsecp256k1-haskell.git
+homepage: http://github.com/ProofOfKeags/secp256k1-haskell#readme
 extra-source-files:
   - CHANGELOG.md
   - README.md

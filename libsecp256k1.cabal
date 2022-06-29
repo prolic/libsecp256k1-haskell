@@ -4,16 +4,16 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 
-name:           secp256k1-haskell
-version:        0.6.1
+name:           libsecp256k1
+version:        0.0.0
 synopsis:       Bindings for secp256k1
 description:    Sign and verify signatures using the secp256k1 library.
 category:       Crypto
-homepage:       http://github.com/haskoin/secp256k1-haskell#readme
-bug-reports:    https://github.com/haskoin/secp256k1-haskell.git/issues
-author:         Jean-Pierre Rupp
-maintainer:     jprupp@protonmail.ch
-copyright:      (c) 2017 Jean-Pierre Rupp
+homepage:       http://github.com/ProofOfKeags/secp256k1-haskell#readme
+bug-reports:    https://github.com/ProofOfKeags/libsecp256k1-haskell.git/issues
+author:         Keagan McClelland
+maintainer:     keagan.mcclelland@gmail.com
+copyright:      (c) 2017 Jean-Pierre Rupp; (c) 2020 Haskoin Developers; (c) 2022 Keagan McClelland
 license:        MIT
 license-file:   LICENSE
 build-type:     Simple
@@ -23,13 +23,15 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/haskoin/secp256k1-haskell.git
+  location: https://github.com/ProofOfKeags/libsecp256k1-haskell.git
 
 library
   exposed-modules:
       Crypto.Secp256k1
       Crypto.Secp256k1.Prim
       Paths_secp256k1_haskell
+  other-modules:
+      Paths_libsecp256k1
   autogen-modules:
       Paths_secp256k1_haskell
   hs-source-dirs:
@@ -55,7 +57,7 @@ test-suite spec
   other-modules:
       Crypto.Secp256k1.InternalSpec
       Crypto.Secp256k1Spec
-      Paths_secp256k1_haskell
+      Paths_libsecp256k1
   hs-source-dirs:
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
