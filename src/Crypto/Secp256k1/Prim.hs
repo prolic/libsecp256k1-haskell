@@ -29,15 +29,15 @@ import System.IO.Unsafe (unsafePerformIO)
 
 
 data LCtx
-data PubKey64
-data PubKeyXOnly64
+data Pubkey64
+data XonlyPubkey64
 data Keypair96
 data Msg32
 data RecSig65
 data Sig64
 data Compact64
 data Seed32
-data SecKey32
+data Seckey32
 data Tweak32
 data SchnorrExtra
 data Scratch
@@ -209,7 +209,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_set_illegal_callback"
 
 -- secp256k1_ecdh
 foreign import ccall safe "secp256k1.h secp256k1_ecdh"
-    ecdh :: Ctx -> Ptr (Bytes n) -> Ptr PubKey64 -> Ptr SecKey32 -> FunPtr (EcdhHashFun a) -> Ptr a -> IO Ret
+    ecdh :: Ctx -> Ptr (Bytes n) -> Ptr Pubkey64 -> Ptr Seckey32 -> FunPtr (EcdhHashFun a) -> Ptr a -> IO Ret
 
 
 -- secp256k1_ecdh_hash_function_default
@@ -224,7 +224,7 @@ foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_sha256"
 
 -- secp256k1_ecdsa_recover
 foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recover"
-    ecdsaRecover :: Ctx -> Ptr PubKey64 -> Ptr RecSig65 -> Ptr Msg32 -> IO Ret
+    ecdsaRecover :: Ctx -> Ptr Pubkey64 -> Ptr RecSig65 -> Ptr Msg32 -> IO Ret
 
 
 -- secp256k1_ecdsa_recoverable_signature_convert
@@ -248,7 +248,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign"
         Ctx ->
         Ptr Sig64 ->
         Ptr Msg32 ->
-        Ptr SecKey32 ->
+        Ptr Seckey32 ->
         FunPtr (NonceFun a) ->
         -- | nonce data
         Ptr a ->
@@ -311,7 +311,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_der"
 -- secp256k1_ecdsa_sign_recoverable
 foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign_recoverable"
     ecdsaSignRecoverable ::
-        Ctx -> Ptr RecSig65 -> Ptr Msg32 -> Ptr SecKey32 -> FunPtr (NonceFun a) -> Ptr a -> IO Ret
+        Ctx -> Ptr RecSig65 -> Ptr Msg32 -> Ptr Seckey32 -> FunPtr (NonceFun a) -> Ptr a -> IO Ret
 
 
 -- secp256k1_ecdsa_verify
@@ -320,11 +320,12 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_verify"
         Ctx ->
         Ptr Sig64 ->
         Ptr Msg32 ->
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         IO Ret
 
 
 -- secp256k1_ec_privkey_negate
+{-# DEPRECATED ecPrivkeyNegate "use ecSeckeyNegate instead" #-}
 foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_negate"
     ecPrivkeyNegate ::
         Ctx ->
@@ -333,19 +334,21 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_negate"
 
 
 -- secp256k1_ec_privkey_tweak_add
+{-# DEPRECATED ecPrivkeyTweakAdd "use ecSeckeyTweakAdd instead" #-}
 foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
-    ecSecKeyTweakAdd ::
+    ecPrivkeyTweakAdd ::
         Ctx ->
-        Ptr SecKey32 ->
+        Ptr Seckey32 ->
         Ptr Tweak32 ->
         IO Ret
 
 
 -- secp256k1_ec_privkey_tweak_mul
+{-# DEPRECATED ecPrivkeyTweakMul "use ecSeckeyTweakMul instead" #-}
 foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_mul"
-    ecSecKeyTweakMul ::
+    ecPrivkeyTweakMul ::
         Ctx ->
-        Ptr SecKey32 ->
+        Ptr Seckey32 ->
         Ptr Tweak32 ->
         IO Ret
 
@@ -354,8 +357,8 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_mul"
 foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_cmp"
     ecPubkeyCmp ::
         Ctx ->
-        Ptr PubKey64 ->
-        Ptr PubKey64
+        Ptr Pubkey64 ->
+        Ptr Pubkey64
 
 
 -- secp256k1_ec_pubkey_combine
@@ -363,9 +366,9 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_combine"
     ecPubKeyCombine ::
         Ctx ->
         -- | pointer to public key storage
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         -- | pointer to array of public keys
-        Ptr (Ptr PubKey64) ->
+        Ptr (Ptr Pubkey64) ->
         -- | number of public keys
         CInt ->
         IO Ret
@@ -375,21 +378,21 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_combine"
 foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_create"
     ecPubKeyCreate ::
         Ctx ->
-        Ptr PubKey64 ->
-        Ptr SecKey32 ->
+        Ptr Pubkey64 ->
+        Ptr Seckey32 ->
         IO Ret
 
 
 -- secp256k1_ec_pubkey_negate
 foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_negate"
-    ecPubkeyNegate :: Ctx -> Ptr PubKey64 -> IO Ret
+    ecPubkeyNegate :: Ctx -> Ptr Pubkey64 -> IO Ret
 
 
 -- secp256k1_ec_pubkey_parse
 foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_parse"
     ecPubkeyParse ::
         Ctx ->
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         -- | encoded public key array
         Ptr (Bytes n) ->
         -- | size of encoded public key array
@@ -405,7 +408,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_serialize"
         Ptr (Bytes n) ->
         -- | size of encoded public key, will be updated
         Ptr CSize ->
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         SerFlags ->
         IO Ret
 
@@ -414,7 +417,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_serialize"
 foreign import ccall unsafe "secp256k1.h secp256k1_ec_pubkey_tweak_add"
     ecPubKeyTweakAdd ::
         Ctx ->
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         Ptr Tweak32 ->
         IO Ret
 
@@ -423,52 +426,52 @@ foreign import ccall unsafe "secp256k1.h secp256k1_ec_pubkey_tweak_add"
 foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_tweak_mul"
     ecPubKeyTweakMul ::
         Ctx ->
-        Ptr PubKey64 ->
+        Ptr Pubkey64 ->
         Ptr Tweak32 ->
         IO Ret
 
 
 -- secp256k1_ec_seckey_negate
 foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_negate"
-    ecSeckeyNegate :: Ctx -> Ptr SecKey32 -> IO Ret
+    ecSeckeyNegate :: Ctx -> Ptr Seckey32 -> IO Ret
 
 
 -- secp256k1_ec_seckey_tweak_add
 foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_add"
-    ecSeckeyTweakAdd :: Ctx -> Ptr SecKey32 -> Ptr Tweak32 -> IO Ret
+    ecSeckeyTweakAdd :: Ctx -> Ptr Seckey32 -> Ptr Tweak32 -> IO Ret
 
 
 -- secp256k1_ec_seckey_tweak_mul
 foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_mul"
-    ecSeckeyTweakMul :: Ctx -> Ptr SecKey32 -> Ptr Tweak32 -> IO Ret
+    ecSeckeyTweakMul :: Ctx -> Ptr Seckey32 -> Ptr Tweak32 -> IO Ret
 
 
 -- secp256k1_ec_seckey_verify
 foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_verify"
     ecSecKeyVerify ::
         Ctx ->
-        Ptr SecKey32 ->
+        Ptr Seckey32 ->
         IO Ret
 
 
 -- secp256k1_keypair_create
 foreign import ccall safe "secp256k1.h secp256k1_keypair_create"
-    keypairCreate :: Ctx -> Ptr Keypair96 -> Ptr SecKey32 -> IO Ret
+    keypairCreate :: Ctx -> Ptr Keypair96 -> Ptr Seckey32 -> IO Ret
 
 
 -- secp256k1_keypair_pub
 foreign import ccall safe "secp256k1.h secp256k1_keypair_pub"
-    keypairPub :: Ctx -> Ptr PubKey64 -> Ptr Keypair96 -> IO Ret
+    keypairPub :: Ctx -> Ptr Pubkey64 -> Ptr Keypair96 -> IO Ret
 
 
 -- secp256k1_keypair_sec
 foreign import ccall safe "secp256k1.h secp256k1_keypair_sec"
-    keypairSec :: Ctx -> Ptr SecKey32 -> Ptr Keypair96 -> IO Ret
+    keypairSec :: Ctx -> Ptr Seckey32 -> Ptr Keypair96 -> IO Ret
 
 
 -- secp256k1_keypair_xonly_pub
 foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_pub"
-    keypairXonlyPub :: Ctx -> Ptr PubKeyXOnly64 -> Ptr CInt -> Ptr Keypair96 -> IO Ret
+    keypairXonlyPub :: Ctx -> Ptr XonlyPubkey64 -> Ptr CInt -> Ptr Keypair96 -> IO Ret
 
 
 -- secp256k1_keypair_xonly_tweak_add
@@ -503,7 +506,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign_custom"
 
 -- secp256k1_schnorrsig_verify
 foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_verify"
-    schnorrSigSignVerify :: Ctx -> Ptr Sig64 -> Ptr (Bytes n) -> CSize -> Ptr PubKeyXOnly64 -> IO Ret
+    schnorrSigSignVerify :: Ctx -> Ptr Sig64 -> Ptr (Bytes n) -> CSize -> Ptr XonlyPubkey64 -> IO Ret
 
 
 -- secp256k1_scratch_space_create
@@ -523,29 +526,29 @@ foreign import ccall safe "secp256k1.h secp256k1_tagged_sha256"
 
 -- secp256k1_xonly_pubkey_cmp
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_cmp"
-    xonlyPubkeyCmp :: Ctx -> Ptr PubKeyXOnly64 -> Ptr PubKeyXOnly64 -> IO Ret
+    xonlyPubkeyCmp :: Ctx -> Ptr XonlyPubkey64 -> Ptr XonlyPubkey64 -> IO Ret
 
 
 -- secp256k1_xonly_pubkey_from_pubkey
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_from_pubkey"
-    xonlyPubkeyFromPubkey :: Ctx -> Ptr PubKeyXOnly64 -> Ptr CInt -> Ptr PubKey64 -> IO Ret
+    xonlyPubkeyFromPubkey :: Ctx -> Ptr XonlyPubkey64 -> Ptr CInt -> Ptr Pubkey64 -> IO Ret
 
 
 -- secp256k1_xonly_pubkey_parse
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_parse"
-    xonlyPubkeyParse :: Ctx -> Ptr PubKeyXOnly64 -> Ptr (Bytes 32) -> IO Ret
+    xonlyPubkeyParse :: Ctx -> Ptr XonlyPubkey64 -> Ptr (Bytes 32) -> IO Ret
 
 
 -- secp256k1_xonly_pubkey_serialize
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_serialize"
-    xonlyPubkeySerialize :: Ctx -> Ptr (Bytes 32) -> Ptr PubKeyXOnly64 -> IO Ret
+    xonlyPubkeySerialize :: Ctx -> Ptr (Bytes 32) -> Ptr XonlyPubkey64 -> IO Ret
 
 
 -- secp256k1_xonly_pubkey_tweak_add
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add"
-    xonlyPubkeyTweakAdd :: Ctx -> Ptr PubKey64 -> Ptr PubKeyXOnly64 -> Ptr Tweak32 -> IO Ret
+    xonlyPubkeyTweakAdd :: Ctx -> Ptr Pubkey64 -> Ptr XonlyPubkey64 -> Ptr Tweak32 -> IO Ret
 
 
 -- secp256k1_xonly_pubkey_tweak_add_check
 foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add_check"
-    xonlyPubkeyTweakAddCheck :: Ctx -> Ptr (Bytes 32) -> CInt -> Ptr PubKeyXOnly64 -> Ptr Tweak32 -> IO Ret
+    xonlyPubkeyTweakAddCheck :: Ctx -> Ptr (Bytes 32) -> CInt -> Ptr XonlyPubkey64 -> Ptr Tweak32 -> IO Ret

@@ -418,7 +418,7 @@ tweakAddSecKey :: SecKey -> Tweak -> Maybe SecKey
 tweakAddSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
         unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- ecSecKeyTweakAdd ctx sec_key_ptr tweak_ptr
+            ret <- ecSeckeyTweakAdd ctx sec_key_ptr tweak_ptr
             if isSuccess ret
                 then return (Just (SecKey new_bs))
                 else return Nothing
@@ -431,7 +431,7 @@ tweakMulSecKey :: SecKey -> Tweak -> Maybe SecKey
 tweakMulSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
         unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- ecSecKeyTweakMul ctx sec_key_ptr tweak_ptr
+            ret <- ecSeckeyTweakMul ctx sec_key_ptr tweak_ptr
             if isSuccess ret
                 then return (Just (SecKey new_bs))
                 else return Nothing
