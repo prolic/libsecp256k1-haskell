@@ -1,4 +1,6 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -16,7 +18,7 @@ module Crypto.Secp256k1.Prim where
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BU
-import Foreign (FunPtr, Ptr, castPtr)
+import Foreign (Bits (..), FunPtr, Ptr, castPtr)
 import Foreign.C (
     CInt (..),
     CSize (..),
@@ -28,66 +30,174 @@ import GHC.TypeNats (Nat)
 import System.IO.Unsafe (unsafePerformIO)
 
 
-type Ctx = Ptr LCtx
-type CtxFlags = CUInt
-type SerFlags = CUInt
+-- | Return type of C Lib functions
 type Ret = CInt
 
 
-verify :: CtxFlags
-verify = 0x0101
+type ContextFlags = CUInt
+type CompressionFlags = CUInt
+type PubkeyFlags = CUInt
 
 
-sign :: CtxFlags
-sign = 0x0201
+-- * Flags
 
 
-signVerify :: CtxFlags
-signVerify = 0x0301
+-- ** Flag Types
 
 
-compressed :: SerFlags
-compressed = 0x0102
+-- $flagTypes All flags' lower 8 bits indicate what they're for. Do not use directly.
 
 
-uncompressed :: SerFlags
-uncompressed = 0x0002
+-- | Mask to isolate the type of flags
+flagsTypeMask :: CUInt
+flagsTypeMask = (1 `shiftL` 8) - 1
+{-# DEPRECATED flagsTypeMask "Do not use Flag Types directly" #-}
 
 
-isSuccess :: Ret -> Bool
-isSuccess 0 = False
-isSuccess 1 = True
-isSuccess n = error $ "isSuccess expected 0 or 1 but got " ++ show n
+-- | This bit indicates that the flags are to be used to initialize context
+flagsTypeContext :: ContextFlags
+flagsTypeContext = 1 `shiftL` 0
+{-# DEPRECATED flagsTypeContext "Do not use Flag Types directly" #-}
 
 
-unsafeUseByteString :: ByteString -> ((Ptr a, CSize) -> IO b) -> IO b
-unsafeUseByteString bs f =
-    BU.unsafeUseAsCStringLen bs $ \(b, l) ->
-        f (castPtr b, fromIntegral l)
+-- | This bit indicates that the flags are to be used to assess compression
+flagsTypeCompression :: CompressionFlags
+flagsTypeCompression = 1 `shiftL` 1
+{-# DEPRECATED flagsTypeCompression "Do not use Flag Types directly" #-}
 
 
-useByteString :: ByteString -> ((Ptr a, CSize) -> IO b) -> IO b
-useByteString bs f =
-    BS.useAsCStringLen bs $ \(b, l) ->
-        f (castPtr b, fromIntegral l)
+-- ** Flag Operations
 
 
-unsafePackByteString :: (Ptr a, CSize) -> IO ByteString
-unsafePackByteString (b, l) =
-    BU.unsafePackMallocCStringLen (castPtr b, fromIntegral l)
+-- $flagOperations
+-- The higher bits contain the actual data. Do not use directly. */
 
 
-packByteString :: (Ptr a, CSize) -> IO ByteString
-packByteString (b, l) =
-    BS.packCStringLen (castPtr b, fromIntegral l)
+-- | This bit indicates that the context should be initialized for verification
+flagsBitContextVerify :: ContextFlags
+flagsBitContextVerify = 1 `shiftL` 8
+{-# DEPRECATED flagsBitContextVerify "Do not use Flag Operations directly" #-}
 
 
-ctx :: Ctx
-ctx = unsafePerformIO $ contextCreate signVerify
-{-# NOINLINE ctx #-}
+-- | This bit indicates that the context should be initialized for signing
+flagsBitContextSign :: ContextFlags
+flagsBitContextSign = 1 `shiftL` 9
+{-# DEPRECATED flagsBitContextSign "Do not use Flag Operations directly" #-}
+
+
+-- | This bit indicates that the context should be initialized for declassification
+flagsBitContextDeclassify :: ContextFlags
+flagsBitContextDeclassify = 1 `shiftL` 10
+{-# DEPRECATED flagsBitContextDeclassify "Do not use Flag Operations directly" #-}
+
+
+-- | This bit indicates that things should be serialized in a compressed format
+flagsBitCompression :: CompressionFlags
+flagsBitCompression = 1 `shiftL` 8
+{-# DEPRECATED flagsBitCompression "Do not use Flag Operations directly" #-}
+
+
+-- ** Composite Flags
+
+
+-- *** Context Initialization Flags
+
+
+-- $ciFlags
+-- Flags to pass to 'contextCreate', 'contextPreallocatedSize', and 'contextPreallocatedCreate'.
+
+
+-- | Initialize context for verification
+flagsContextVerify :: ContextFlags
+flagsContextVerify = flagsTypeContext .|. flagsBitContextVerify
+
+
+-- | Initialize context for signing
+flagsContextSign :: ContextFlags
+flagsContextSign = flagsTypeContext .|. flagsBitContextSign
+
+
+-- | Initialize context for declassifying
+flagsContextDeclassify :: ContextFlags
+flagsContextDeclassify = flagsTypeContext .|. flagsBitContextDeclassify
+
+
+-- | Initialize context for primitive operations
+flagsContextNone :: ContextFlags
+flagsContextNone = flagsTypeContext
+
+
+-- *** Pubkey Serialization Flags
+
+
+-- $psFlags
+-- Flags to pass to 'ecPubkeySerialize'.
+
+
+-- | Serialize EC keys compressed
+flagsEcCompressed :: CompressionFlags
+flagsEcCompressed = flagsTypeCompression .|. flagsBitCompression
+
+
+-- | Serialize EC keys uncompressed
+flagsEcUncompressed :: CompressionFlags
+flagsEcUncompressed = flagsTypeCompression
+
+
+-- *** Pubkey Tags
+
+
+-- $pkTags
+-- Prefix byte used to tag various encoded curvepoints for specific purposes
+
+
+-- | Pubkey is even
+flagsTagPubkeyEven :: PubkeyFlags
+flagsTagPubkeyEven = 0x02
+
+
+-- | Pubkey is odd
+flagsTagPubkeyOdd :: PubkeyFlags
+flagsTagPubkeyOdd = 0x03
+
+
+-- | Pubkey is uncompressed
+flagsTagPubkeyUncompressed :: PubkeyFlags
+flagsTagPubkeyUncompressed = 0x04
+
+
+-- | Pubkey is even and uncompressed
+flagsTagPubkeyHybridEven :: PubkeyFlags
+flagsTagPubkeyHybridEven = flagsTagPubkeyEven .|. flagsTagPubkeyUncompressed
+
+
+-- | Pubkey is odd and uncompressed
+flagsTagPubkeyHybridOdd :: PubkeyFlags
+flagsTagPubkeyHybridOdd = flagsTagPubkeyOdd .|. flagsTagPubkeyUncompressed
 
 
 -- * Context Operations
+
+
+-- | Opaque data structure that holds context information (precomputed tables etc.).
+--
+--  The purpose of context structures is to cache large precomputed data tables
+--  that are expensive to construct, and also to maintain the randomization data
+--  for blinding.
+--
+--  Do not create a new context object for each operation, as construction is
+--  far slower than all other API calls (~100 times slower than an ECDSA
+--  verification).
+--
+--  A constructed context can safely be used from multiple threads
+--  simultaneously, but API calls that take a non-const pointer to a context
+--  need exclusive access to it. In particular this is the case for
+--  'contextDestroy', 'contextPreallocatedDestroy',
+--  and 'contextRandomize'.
+--
+--  Regarding randomization, either do it once at creation time (in which case
+--  you do not need any locking for the other calls), or use a read-write lock.
+type Ctx = Ptr LCtx
 
 
 -- | Updates the context randomization to protect against side-channel leakage.
@@ -146,7 +256,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_clone"
 foreign import ccall safe "secp256k1.h secp256k1_context_create"
     contextCreate ::
         -- | __Input:__ which parts of the context to initialize.
-        CtxFlags ->
+        ContextFlags ->
         -- | __Returns:__ a newly created context object.
         IO Ctx
 
@@ -171,7 +281,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_destroy"
 
 
 -- $preallocated
--- functions in this secion are intended for settings in which it
+-- Functions in this secion are intended for settings in which it
 -- is not possible or desirable to rely on dynamic memory allocation. It provides
 -- functions for creating, cloning, and destroying secp256k1 context objects in a
 -- contiguous fixed-size block of memory provided by the caller.
@@ -340,8 +450,10 @@ foreign import ccall safe "secp256k1.h secp256k1_context_set_error_callback"
 --  USE_EXTERNAL_DEFAULT_CALLBACKS is defined, which is the case if the build
 --  has been configured with @--enable-external-default-callbacks@. Then the
 --  following two symbols must be provided to link against:
---   - void secp256k1_default_illegal_callback_fn(const char* message, void* data);
---   - void secp256k1_default_error_callback_fn(const char* message, void* data);
+--
+--   - @void secp256k1_default_illegal_callback_fn(const char* message, void* data);@
+--   - @void secp256k1_default_error_callback_fn(const char* message, void* data);@
+--
 --  The library can call these default handlers even before a proper callback data
 --  pointer could have been set using 'contextSetIllegalCallback' or
 --  'contextSetErrorCallback', e.g., when the creation of a context
@@ -393,8 +505,8 @@ foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_function_default"
 
 -- | An implementation of SHA256 hash function that applies to compressed public key.
 -- Populates the output parameter with 32 bytes.
-foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_sha256"
-    ecdhHashSha256 :: FunPtr (EcdhHashFun a)
+foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_function_sha256"
+    ecdhHashFunctionSha256 :: FunPtr (EcdhHashFun a)
 
 
 -- * ECDSA
@@ -462,35 +574,35 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_par
 -- | Serialize an ECDSA signature in compact format (64 bytes + recovery id).
 foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_serialize_compact"
     ecdsaRecoverableSignatureSerializeCompact ::
-        --  Args: ctx:      a secp256k1 context object
+        -- | a secp256k1 context object
         Ctx ->
-        --  Out:  output64: a pointer to a 64-byte array of the compact signature (cannot be NULL)
+        -- | __Output:__ a pointer to a 64-byte array of the compact signature (cannot be NULL)
         Ptr (Bytes 64) ->
-        --        recid:    a pointer to an integer to hold the recovery id (can be NULL).
+        -- | __Output:__ a pointer to an integer to hold the recovery id (can be NULL).
         Ptr CInt ->
-        --  In:   sig:      a pointer to an initialized signature object (cannot be NULL)
+        -- | __Input:__ a pointer to an initialized signature object (cannot be NULL)
         Ptr RecSig65 ->
-        --  Returns: 1
+        -- | __Returns:__ 1
         IO Ret
 
 
 -- | Create a recoverable ECDSA signature.
 foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign_recoverable"
     ecdsaSignRecoverable ::
-        --  Args:    ctx:       pointer to a context object, initialized for signing (cannot be NULL)
+        -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
-        --  Out:     sig:       pointer to an array where the signature will be placed (cannot be NULL)
+        -- | __Output:__ pointer to an array where the signature will be placed (cannot be NULL)
         Ptr RecSig65 ->
-        --  In:      msghash32: the 32-byte message hash being signed (cannot be NULL)
+        -- | __Input:__ the 32-byte message hash being signed (cannot be NULL)
         Ptr Msg32 ->
-        --           seckey:    pointer to a 32-byte secret key (cannot be NULL)
+        -- | __Input:__ pointer to a 32-byte secret key (cannot be NULL)
         Ptr Seckey32 ->
-        --           noncefp:   pointer to a nonce generation function. If NULL, 'nonceFunctionDefault' is used
+        -- | __Input:__ pointer to a nonce generation function. If NULL, 'nonceFunctionDefault' is used
         FunPtr (NonceFun a) ->
-        --           ndata:     pointer to arbitrary data used by the nonce generation function (can be NULL)
+        -- | __Input:__ pointer to arbitrary data used by the nonce generation function (can be NULL)
         Ptr a ->
-        --  Returns: 1: signature created
-        --           0: the nonce generation function failed, or the secret key was invalid.
+        -- | __Returns:__ 1: signature created
+        -- 0: the nonce generation function failed, or the secret key was invalid.
         IO Ret
 
 
@@ -618,7 +730,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_parse_compact"
         -- | __Output:__ a pointer to a signature object
         Ptr Sig64 ->
         -- | __Input:__ a pointer to the 64-byte array to parse
-        Ptr Compact64 ->
+        Ptr (Bytes 64) ->
         -- | __Returns:__ 1 when the signature could be parsed, 0 otherwise.
         IO Ret
 
@@ -653,7 +765,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_compa
         -- | __Input:__ a secp256k1 context object
         Ctx ->
         -- | __Output:__ a pointer to a 64-byte array to store the compact serialization
-        Ptr Compact64 ->
+        Ptr (Bytes 64) ->
         -- | __Input:__ a pointer to an initialized signature object
         Ptr Sig64 ->
         -- | __Returns:__ 1
@@ -774,7 +886,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_serialize"
         Ptr Pubkey64 ->
         -- | __Input:__ 'compressed' if serialization should be in
         -- compressed format, otherwise 'uncompressed'.
-        SerFlags ->
+        CompressionFlags ->
         --  Returns: 1 always.
         IO Ret
 
@@ -933,22 +1045,21 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_sec"
 --
 --  This is the same as calling 'keypairPub' and then
 --  'xonlyPubkeyFromPubkey'.
---
---  Returns: 0 if the arguments are invalid. 1 otherwise.
---  Args:   ctx: pointer to a context object (cannot be NULL)
---  Out: pubkey: pointer to an xonly_pubkey object. If 1 is returned, it is set
---               to the keypair public key after converting it to an
---               xonly_pubkey. If not, it's set to an invalid value (cannot be
---               NULL).
---    pk_parity: pointer to an integer that will be set to the pk_parity
---               argument of 'xonlyPubkeyFromPubkey' (can be NULL).
---  In: keypair: pointer to a keypair (cannot be NULL)
 foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_pub"
     keypairXonlyPub ::
+        -- | pointer to a context object (cannot be NULL)
         Ctx ->
+        -- | __Output:__ pointer to an xonly_pubkey object. If 1 is returned, it is set
+        -- to the keypair public key after converting it to an
+        -- xonly_pubkey. If not, it's set to an invalid value (cannot be
+        -- NULL).
         Ptr XonlyPubkey64 ->
+        --    pk_parity: pointer to an integer that will be set to the pk_parity
+        --               argument of 'xonlyPubkeyFromPubkey' (can be NULL).
         Ptr CInt ->
+        --  In: keypair: pointer to a keypair (cannot be NULL)
         Ptr Keypair96 ->
+        --  Returns: 0 if the arguments are invalid. 1 otherwise.
         IO Ret
 
 
@@ -1293,7 +1404,6 @@ data Keypair96
 data Msg32
 data RecSig65
 data Sig64
-data Compact64
 data Seed32
 data Seckey32
 data Tweak32

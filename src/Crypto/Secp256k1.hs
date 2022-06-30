@@ -3,6 +3,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
 
 -- |
 -- Module      : Crypto.Secp256k1
@@ -12,57 +14,20 @@
 -- Portability : POSIX
 --
 -- Crytpographic functions from Bitcoin’s secp256k1 library.
-module Crypto.Secp256k1 (
-    -- * Messages
-    Msg,
-    msg,
-    getMsg,
-
-    -- * Secret Keys
-    SecKey,
-    secKey,
-    getSecKey,
-    derivePubKey,
-
-    -- * Public Keys
-    PubKey,
-    importPubKey,
-    exportPubKey,
-
-    -- * Signatures
-    Sig,
-    signMsg,
-    verifySig,
-    normalizeSig,
-
-    -- ** DER
-    importSig,
-    exportSig,
-
-    -- ** Compact
-    CompactSig,
-    getCompactSig,
-    compactSig,
-    exportCompactSig,
-    importCompactSig,
-
-    -- * Addition & Multiplication
-    Tweak,
-    tweak,
-    getTweak,
-    tweakAddSecKey,
-    tweakMulSecKey,
-    tweakAddPubKey,
-    tweakMulPubKey,
-    combinePubKeys,
-) where
+module Crypto.Secp256k1 where
 
 import Control.DeepSeq (NFData)
 import Control.Monad (replicateM, unless, (<=<))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Cont (ContT (..), evalContT)
+import Crypto.Secp256k1.Internal
+import Crypto.Secp256k1.Prim (flagsEcUncompressed)
 import qualified Crypto.Secp256k1.Prim as Prim
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base16 as B16
+import Data.ByteString.Unsafe (unsafePackCStringLen, unsafePackMallocCStringLen)
+import Data.Functor (($>))
 import Data.Hashable (Hashable (..))
 import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Serialize (
@@ -73,18 +38,26 @@ import Data.Serialize (
 import Data.String (IsString (..))
 import Data.String.Conversions (ConvertibleStrings, cs)
 import Foreign (
+    Bits (..),
+    ForeignPtr,
+    Ptr,
     alloca,
     allocaArray,
     allocaBytes,
+    castPtr,
+    finalizerFree,
     free,
     mallocBytes,
+    newForeignPtr,
     nullFunPtr,
     nullPtr,
     peek,
     poke,
     pokeArray,
+    withForeignPtr,
  )
 import GHC.Generics (Generic)
+import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.QuickCheck (
     Arbitrary (..),
@@ -100,411 +73,246 @@ import Text.Read (
  )
 
 
-newtype PubKey = PubKey {getPubKey :: ByteString}
-    deriving (Eq, Generic, NFData)
-newtype Msg = Msg {getMsg :: ByteString}
-    deriving (Eq, Generic, NFData)
-newtype Sig = Sig {getSig :: ByteString}
-    deriving (Eq, Generic, NFData)
-newtype SecKey = SecKey {getSecKey :: ByteString}
-    deriving (Eq, Generic, NFData)
+-- | Type for specifying how to serialize 'PubKey'
+data PubKeySize = Size32 | Size33 | Size65
+
+
+newtype PubKeyXY = PubKeyXY (ForeignPtr Prim.Pubkey64)
+    deriving (Eq, Generic)
+newtype PubKeyXO = PubKeyXO (ForeignPtr Prim.XonlyPubkey64)
+    deriving (Eq, Generic)
+newtype KeyPair = KeyPair {unKeyPair :: ForeignPtr Prim.Keypair96}
+newtype MsgHash = MsgHash {unMsg :: ForeignPtr Prim.Msg32}
+newtype Signature = Signature (ForeignPtr Prim.Sig64)
+newtype RecoverableSignature = RecoverableSignature (Ptr Prim.RecSig65)
+    deriving (Eq, Generic)
+newtype SecKey = SecKey {unSecKey :: ForeignPtr Prim.Seckey32}
+    deriving (Eq, Generic)
 newtype Tweak = Tweak {getTweak :: ByteString}
     deriving (Eq, Generic, NFData)
-newtype CompactSig = CompactSig {getCompactSig :: ByteString}
-    deriving (Eq, Generic, NFData)
 
 
-instance Serialize PubKey where
-    put (PubKey bs) = putByteString bs
-    get = PubKey <$> getByteString 64
+-- | Preinitialized context for signing and verification
+ctx :: Prim.Ctx
+ctx = unsafePerformIO $ Prim.contextCreate (Prim.flagsContextSign .|. Prim.flagsContextVerify)
+{-# NOINLINE ctx #-}
 
 
-instance Serialize Msg where
-    put (Msg m) = putByteString m
-    get = Msg <$> getByteString 32
-
-
-instance Serialize Sig where
-    put (Sig bs) = putByteString bs
-    get = Sig <$> getByteString 64
-
-
-instance Serialize SecKey where
-    put (SecKey bs) = putByteString bs
-    get = SecKey <$> getByteString 32
-
-
-instance Serialize Tweak where
-    put (Tweak bs) = putByteString bs
-    get = Tweak <$> getByteString 32
-
-
-instance Serialize CompactSig where
-    put (CompactSig bs) = putByteString bs
-    get = CompactSig <$> getByteString 64
-
-
-decodeHex :: ConvertibleStrings a ByteString => a -> Maybe ByteString
-decodeHex str = case B16.decodeBase16 $ cs str of
-    Right bs -> Just bs
-    Left _ -> Nothing
-
-
-instance Read PubKey where
-    readPrec = do
-        String str <- lexP
-        maybe pfail return $ importPubKey =<< decodeHex str
-
-
-instance Hashable PubKey where
-    i `hashWithSalt` k = i `hashWithSalt` exportPubKey True k
-
-
-instance IsString PubKey where
-    fromString = fromMaybe e . (importPubKey <=< decodeHex)
-        where
-            e = error "Could not decode public key from hex string"
-
-
-instance Show PubKey where
-    showsPrec _ = shows . B16.encodeBase16 . exportPubKey True
-
-
-instance Read Msg where
-    readPrec = parens $ do
-        String str <- lexP
-        maybe pfail return $ msg =<< decodeHex str
-
-
-instance Hashable Msg where
-    i `hashWithSalt` m = i `hashWithSalt` getMsg m
-
-
-instance IsString Msg where
-    fromString = fromMaybe e . (msg <=< decodeHex)
-        where
-            e = error "Could not decode message from hex string"
-
-
-instance Show Msg where
-    showsPrec _ = shows . B16.encodeBase16 . getMsg
-
-
-instance Read Sig where
-    readPrec = parens $ do
-        String str <- lexP
-        maybe pfail return $ importSig =<< decodeHex str
-
-
-instance IsString Sig where
-    fromString = fromMaybe e . (importSig <=< decodeHex)
-        where
-            e = error "Could not decode signature from hex string"
-
-
-instance Hashable Sig where
-    i `hashWithSalt` s = i `hashWithSalt` exportSig s
-
-
-instance Show Sig where
-    showsPrec _ = shows . B16.encodeBase16 . exportSig
-
-
-instance Read SecKey where
-    readPrec = parens $ do
-        String str <- lexP
-        maybe pfail return $ secKey =<< decodeHex str
-
-
-instance Hashable SecKey where
-    i `hashWithSalt` k = i `hashWithSalt` getSecKey k
-
-
-instance IsString SecKey where
-    fromString = fromMaybe e . (secKey <=< decodeHex)
-        where
-            e = error "Colud not decode secret key from hex string"
-
-
-instance Show SecKey where
-    showsPrec _ = shows . B16.encodeBase16 . getSecKey
-
-
-instance Hashable Tweak where
-    i `hashWithSalt` t = i `hashWithSalt` getTweak t
-
-
-instance Read Tweak where
-    readPrec = parens $ do
-        String str <- lexP
-        maybe pfail return $ tweak =<< decodeHex str
-
-
-instance IsString Tweak where
-    fromString = fromMaybe e . (tweak <=< decodeHex)
-        where
-            e = error "Could not decode tweak from hex string"
-
-
-instance Show Tweak where
-    showsPrec _ = shows . B16.encodeBase16 . getTweak
-
-
--- | Import 32-byte 'ByteString' as 'Msg'.
-msg :: ByteString -> Maybe Msg
-msg bs
-    | BS.length bs == 32 = Just (Msg bs)
-    | otherwise = Nothing
-
-
--- | Import 32-byte 'ByteString' as 'SecKey'.
-secKey :: ByteString -> Maybe SecKey
-secKey bs
-    | BS.length bs == 32 = Just (SecKey bs)
-    | otherwise = Nothing
-
-
-compactSig :: ByteString -> Maybe CompactSig
-compactSig bs
-    | BS.length bs == 64 = Just (CompactSig bs)
-    | otherwise = Nothing
-
-
--- | Convert signature to a normalized lower-S form. 'Nothing' indicates that it
--- was already normal.
-normalizeSig :: Sig -> Maybe Sig
-normalizeSig (Sig sig) = unsafePerformIO $
-    Prim.unsafeUseByteString sig $ \(sig_in, _) -> do
-        sig_out <- mallocBytes 64
-        ret <- Prim.ecdsaSignatureNormalize Prim.ctx sig_out sig_in
-        if Prim.isSuccess ret
-            then do
-                bs <- Prim.unsafePackByteString (sig_out, 64)
-                return (Just (Sig bs))
-            else do
-                free sig_out
-                return Nothing
-
-
--- | 32-Byte 'ByteString' as 'Tweak'.
-tweak :: ByteString -> Maybe Tweak
-tweak bs
-    | BS.length bs == 32 = Just (Tweak bs)
-    | otherwise = Nothing
-
-
--- | Import DER-encoded public key.
-importPubKey :: ByteString -> Maybe PubKey
-importPubKey bs
-    | BS.null bs = Nothing
-    | otherwise = unsafePerformIO $
-        Prim.unsafeUseByteString bs $ \(input, len) -> do
-            pub_key <- mallocBytes 64
-            ret <- Prim.ecPubkeyParse Prim.ctx pub_key input len
-            if Prim.isSuccess ret
+importSecKey :: ByteString -> Maybe SecKey
+importSecKey bs
+    | BS.length bs /= 32 = Nothing
+    | otherwise = unsafePerformIO $ do
+        unsafeUseByteString bs $ \(ptr, len) -> do
+            ret <- Prim.ecSecKeyVerify ctx ptr
+            if isSuccess ret
                 then do
-                    out <- Prim.unsafePackByteString (pub_key, 64)
-                    return (Just (PubKey out))
-                else do
-                    free pub_key
-                    return Nothing
+                    newPtr <- mallocBytes 32
+                    memcpy newPtr ptr 32
+                    Just . SecKey <$> newForeignPtr finalizerFree newPtr
+                else pure Nothing
 
 
--- | Encode public key as DER. First argument 'True' for compressed output.
-exportPubKey :: Bool -> PubKey -> ByteString
-exportPubKey compress (PubKey in_bs) = unsafePerformIO $
-    Prim.unsafeUseByteString in_bs $ \(in_ptr, _) ->
-        alloca $ \len_ptr ->
-            allocaBytes len $ \out_ptr -> do
-                poke len_ptr $ fromIntegral len
-                ret <- Prim.ecPubkeySerialize Prim.ctx out_ptr len_ptr in_ptr flags
-                unless (Prim.isSuccess ret) $ error "could not serialize public key"
-                final_len <- peek len_ptr
-                Prim.packByteString (out_ptr, final_len)
-    where
-        len = if compress then 33 else 65
-        flags = if compress then Prim.compressed else Prim.uncompressed
-
-
-exportCompactSig :: Sig -> CompactSig
-exportCompactSig (Sig sig_bs) = unsafePerformIO $
-    Prim.unsafeUseByteString sig_bs $ \(sig_ptr, _) -> do
-        out_ptr <- mallocBytes 64
-        ret <- Prim.ecdsaSignatureSerializeCompact Prim.ctx out_ptr sig_ptr
-        unless (Prim.isSuccess ret) $ do
-            free out_ptr
-            error "Could not obtain compact signature"
-        out_bs <- Prim.unsafePackByteString (out_ptr, 64)
-        return $ CompactSig out_bs
-
-
-importCompactSig :: CompactSig -> Maybe Sig
-importCompactSig (CompactSig compact_sig) = unsafePerformIO $
-    Prim.unsafeUseByteString compact_sig $ \(compact_ptr, _) -> do
-        out_sig <- mallocBytes 64
-        ret <- Prim.ecdsaSignatureParseCompact Prim.ctx out_sig compact_ptr
-        if Prim.isSuccess ret
+-- | Parses a 33 or 65 byte public key, all other lengths will result in @Nothing@
+importPubKeyXY :: ByteString -> Maybe PubKeyXY
+importPubKeyXY bs = unsafePerformIO $
+    unsafeUseByteString bs $ \(input, len) -> do
+        pubkeyOutputBuf <- mallocBytes 64
+        if len == 33 || len == 65
             then do
-                out_bs <- Prim.unsafePackByteString (out_sig, 64)
-                return (Just (Sig out_bs))
-            else do
-                free out_sig
-                return Nothing
+                ret <- Prim.ecPubkeyParse ctx (castPtr pubkeyOutputBuf) input len
+                if isSuccess ret
+                    then Just . PubKeyXY <$> newForeignPtr finalizerFree (castPtr pubkeyOutputBuf)
+                    else free pubkeyOutputBuf $> Nothing
+            else pure Nothing
 
 
--- | Import DER-encoded signature.
-importSig :: ByteString -> Maybe Sig
-importSig bs
-    | BS.null bs = Nothing
-    | otherwise = unsafePerformIO $
-        Prim.unsafeUseByteString bs $ \(in_ptr, in_len) -> do
-            out_sig <- mallocBytes 64
-            ret <- Prim.ecdsaSignatureParseDer Prim.ctx out_sig in_ptr in_len
-            if Prim.isSuccess ret
-                then do
-                    out_bs <- Prim.unsafePackByteString (out_sig, 64)
-                    return (Just (Sig out_bs))
-                else do
-                    free out_sig
-                    return Nothing
+-- | Serialize public key to 'ByteString'. First argument 'True' for compressed output. If the underlying Pubkey is
+-- an 'XOnly
+exportPubKeyXY :: Bool -> PubKeyXY -> ByteString
+exportPubKeyXY compress (PubKeyXY fptr) = unsafePerformIO $ do
+    let flags = if compress then Prim.flagsEcCompressed else Prim.flagsEcUncompressed
+    let sz = if compress then 33 else 65
+    buf <- mallocBytes sz
+    alloca $ \written -> do
+        -- always succeeds so we don't need to check
+        _ret <- withForeignPtr fptr $ \ptr -> Prim.ecPubkeySerialize ctx buf written ptr flags
+        len <- peek written
+        unsafePackMallocCStringLen (castPtr buf, fromIntegral len)
 
 
--- | Encode signature as strict DER.
-exportSig :: Sig -> ByteString
-exportSig (Sig in_sig) = unsafePerformIO $
-    Prim.unsafeUseByteString in_sig $ \(in_ptr, _) ->
-        alloca $ \out_len ->
-            allocaBytes 72 $ \out_ptr -> do
-                poke out_len 72
-                ret <- Prim.ecdsaSignatureSerializeDer Prim.ctx out_ptr out_len in_ptr
-                unless (Prim.isSuccess ret) $ error "could not serialize signature"
-                final_len <- peek out_len
-                Prim.packByteString (out_ptr, final_len)
+importPubKeyXO :: ByteString -> Maybe PubKeyXO
+importPubKeyXO bs
+    | BS.length bs /= 32 = Nothing
+    | otherwise = unsafePerformIO $ do
+        outBuf <- mallocBytes 64
+        unsafeUseByteString bs $ \(ptr, _) -> do
+            ret <- Prim.xonlyPubkeyParse ctx outBuf ptr
+            if isSuccess ret
+                then Just . PubKeyXO <$> newForeignPtr finalizerFree outBuf
+                else pure Nothing
+
+
+exportPubKeyXO :: PubKeyXO -> ByteString
+exportPubKeyXO (PubKeyXO pkFPtr) = unsafePerformIO $ do
+    outBuf <- mallocBytes 32
+    _ret <- withForeignPtr pkFPtr $ Prim.xonlyPubkeySerialize ctx outBuf
+    unsafePackByteString (outBuf, 32)
+
+
+importSignature :: ByteString -> Maybe Signature
+importSignature bs = unsafePerformIO $
+    unsafeUseByteString bs $ \(inBuf, len) -> do
+        outBuf <- mallocBytes 64
+        ret <-
+            if
+                    -- compact
+                    | len == 64 -> Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
+                    -- der
+                    | len >= 71 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
+                    -- invalid
+                    | otherwise -> pure 0
+        if isSuccess ret
+            then Just . Signature <$> newForeignPtr finalizerFree (castPtr outBuf)
+            else free outBuf $> Nothing
+
+
+exportSignatureCompact :: Signature -> ByteString
+exportSignatureCompact (Signature fptr) = unsafePerformIO $ do
+    outBuf <- mallocBytes 64
+    -- always succeeds
+    _ret <- withForeignPtr fptr $ Prim.ecdsaSignatureSerializeCompact ctx outBuf
+    unsafePackByteString (outBuf, 64)
+
+
+exportSignatureDer :: Signature -> ByteString
+exportSignatureDer (Signature fptr) = unsafePerformIO $ do
+    -- as of Q4'2015 73 byte sigs became nonstandard so we will never create one that big
+    outBuf <- mallocBytes 72
+    alloca $ \written -> do
+        -- always succeeds
+        _ret <- withForeignPtr fptr $ Prim.ecdsaSignatureSerializeDer ctx outBuf written
+        len <- peek written
+        unsafePackByteString (outBuf, len)
 
 
 -- | Verify message signature. 'True' means that the signature is correct.
-verifySig :: PubKey -> Sig -> Msg -> Bool
-verifySig (PubKey pub_key) (Sig sig) (Msg m) = unsafePerformIO $
-    Prim.unsafeUseByteString pub_key $ \(pub_key_ptr, _) ->
-        Prim.unsafeUseByteString sig $ \(sig_ptr, _) ->
-            Prim.unsafeUseByteString m $ \(msg_ptr, _) ->
-                Prim.isSuccess <$> Prim.ecdsaVerify Prim.ctx sig_ptr msg_ptr pub_key_ptr
+ecdsaVerify :: ByteString -> PubKeyXY -> Signature -> Bool
+ecdsaVerify msgHash (PubKeyXY pkFPtr) (Signature sigFPtr) = unsafePerformIO $
+    evalContT $ do
+        pkPtr <- ContT (withForeignPtr pkFPtr)
+        sigPtr <- ContT (withForeignPtr sigFPtr)
+        (msgHashPtr, n) <- ContT (unsafeUseByteString msgHash)
+        lift $ isSuccess <$> Prim.ecdsaVerify ctx sigPtr msgHashPtr pkPtr
 
 
-signMsg :: SecKey -> Msg -> Sig
-signMsg (SecKey sec_key) (Msg m) = unsafePerformIO $
-    Prim.unsafeUseByteString sec_key $ \(sec_key_ptr, _) ->
-        Prim.unsafeUseByteString m $ \(msg_ptr, _) -> do
-            sig_ptr <- mallocBytes 64
-            ret <- Prim.ecdsaSign Prim.ctx sig_ptr msg_ptr sec_key_ptr nullFunPtr nullPtr
-            unless (Prim.isSuccess ret) $ do
-                free sig_ptr
-                error "could not sign message"
-            Sig <$> Prim.unsafePackByteString (sig_ptr, 64)
+ecdsaSign :: SecKey -> ByteString -> Maybe Signature
+ecdsaSign (SecKey skFPtr) msgHash
+    | BS.length msgHash /= 32 = Nothing
+    | otherwise = unsafePerformIO $
+        evalContT $ do
+            skPtr <- ContT (withForeignPtr skFPtr)
+            (msgHashPtr, _) <- ContT (unsafeUseByteString msgHash)
+            sigBuf <- lift $ mallocBytes 64
+            ret <- lift $ Prim.ecdsaSign ctx sigBuf msgHashPtr skPtr Prim.nonceFunctionDefault nullPtr
+            lift $
+                if isSuccess ret
+                    then Just . Signature <$> newForeignPtr finalizerFree sigBuf
+                    else free sigBuf $> Nothing
 
 
-derivePubKey :: SecKey -> PubKey
-derivePubKey (SecKey sec_key) = unsafePerformIO $
-    Prim.unsafeUseByteString sec_key $ \(sec_key_ptr, _) -> do
-        pub_key_ptr <- mallocBytes 64
-        ret <- Prim.ecPubkeyCreate Prim.ctx pub_key_ptr sec_key_ptr
-        unless (Prim.isSuccess ret) $ do
-            free pub_key_ptr
-            error "could not compute public key"
-        PubKey <$> Prim.unsafePackByteString (pub_key_ptr, 64)
+derivePubKey :: SecKey -> PubKeyXY
+derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
+    outBuf <- mallocBytes 64
+    ret <- withForeignPtr skFPtr $ Prim.ecPubkeyCreate ctx outBuf
+    unless (isSuccess ret) $ do
+        free outBuf
+        error "Bug: Invalid Secret Key Constructed"
+    PubKeyXY <$> newForeignPtr finalizerFree outBuf
 
+-- -- | Add tweak to secret key.
+-- tweakAddSecKey :: SecKey -> Tweak -> Maybe SecKey
+-- tweakAddSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
+--     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
+--         unsafeUseByteString t $ \(tweak_ptr, _) -> do
+--             ret <- Prim.ecSeckeyTweakAdd Prim.ctx sec_key_ptr tweak_ptr
+--             if isSuccess ret
+--                 then return (Just (SecKey new_bs))
+--                 else return Nothing
+--     where
+--         new_bs = BS.copy sec_key
 
--- | Add tweak to secret key.
-tweakAddSecKey :: SecKey -> Tweak -> Maybe SecKey
-tweakAddSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
-    Prim.unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
-        Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecSeckeyTweakAdd Prim.ctx sec_key_ptr tweak_ptr
-            if Prim.isSuccess ret
-                then return (Just (SecKey new_bs))
-                else return Nothing
-    where
-        new_bs = BS.copy sec_key
+-- -- | Multiply secret key by tweak.
+-- tweakMulSecKey :: SecKey -> Tweak -> Maybe SecKey
+-- tweakMulSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
+--     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
+--         unsafeUseByteString t $ \(tweak_ptr, _) -> do
+--             ret <- Prim.ecSeckeyTweakMul Prim.ctx sec_key_ptr tweak_ptr
+--             if isSuccess ret
+--                 then return (Just (SecKey new_bs))
+--                 else return Nothing
+--     where
+--         new_bs = BS.copy sec_key
 
+-- -- | Add tweak to public key. Tweak is multiplied first by G to obtain a point.
+-- tweakAddPubKey :: PubKey -> Tweak -> Maybe PubKey
+-- tweakAddPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
+--     unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
+--         unsafeUseByteString t $ \(tweak_ptr, _) -> do
+--             ret <- Prim.ecPubkeyTweakAdd Prim.ctx pub_key_ptr tweak_ptr
+--             if isSuccess ret
+--                 then return (Just (PubKey new_bs))
+--                 else return Nothing
+--     where
+--         new_bs = BS.copy pub_key
 
--- | Multiply secret key by tweak.
-tweakMulSecKey :: SecKey -> Tweak -> Maybe SecKey
-tweakMulSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
-    Prim.unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
-        Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecSeckeyTweakMul Prim.ctx sec_key_ptr tweak_ptr
-            if Prim.isSuccess ret
-                then return (Just (SecKey new_bs))
-                else return Nothing
-    where
-        new_bs = BS.copy sec_key
+-- -- | Multiply public key by tweak. Tweak is multiplied first by G to obtain a
+-- -- point.
+-- tweakMulPubKey :: PubKey -> Tweak -> Maybe PubKey
+-- tweakMulPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
+--     unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
+--         unsafeUseByteString t $ \(tweak_ptr, _) -> do
+--             ret <- Prim.ecPubkeyTweakMul Prim.ctx pub_key_ptr tweak_ptr
+--             if isSuccess ret
+--                 then return (Just (PubKey new_bs))
+--                 else return Nothing
+--     where
+--         new_bs = BS.copy pub_key
 
+-- -- | Add multiple public keys together.
+-- combinePubKeys :: [PubKey] -> Maybe PubKey
+-- combinePubKeys [] = Nothing
+-- combinePubKeys pubs = unsafePerformIO $
+--     pointers [] pubs $ \ps ->
+--         allocaArray (length ps) $ \a -> do
+--             out <- mallocBytes 64
+--             pokeArray a ps
+--             ret <- Prim.ecPubkeyCombine Prim.ctx out a (fromIntegral $ length ps)
+--             if isSuccess ret
+--                 then do
+--                     bs <- unsafePackByteString (out, 64)
+--                     return (Just (PubKey bs))
+--                 else do
+--                     free out
+--                     return Nothing
+--     where
+--         pointers ps [] f = f ps
+--         pointers ps (PubKey pub_key : pub_keys) f =
+--             unsafeUseByteString pub_key $ \(p, _) ->
+--                 pointers (p : ps) pub_keys f
 
--- | Add tweak to public key. Tweak is multiplied first by G to obtain a point.
-tweakAddPubKey :: PubKey -> Tweak -> Maybe PubKey
-tweakAddPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
-    Prim.unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
-        Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecPubkeyTweakAdd Prim.ctx pub_key_ptr tweak_ptr
-            if Prim.isSuccess ret
-                then return (Just (PubKey new_bs))
-                else return Nothing
-    where
-        new_bs = BS.copy pub_key
+-- instance Arbitrary Msg where
+--     arbitrary = gen_msg
+--         where
+--             valid_bs = bs_gen `suchThat` isJust
+--             bs_gen = msg . BS.pack <$> replicateM 32 arbitraryBoundedRandom
+--             gen_msg = fromJust <$> valid_bs
 
+-- instance Arbitrary SecKey where
+--     arbitrary = gen_key
+--         where
+--             valid_bs = bs_gen `suchThat` isJust
+--             bs_gen = secKey . BS.pack <$> replicateM 32 arbitraryBoundedRandom
+--             gen_key = fromJust <$> valid_bs
 
--- | Multiply public key by tweak. Tweak is multiplied first by G to obtain a
--- point.
-tweakMulPubKey :: PubKey -> Tweak -> Maybe PubKey
-tweakMulPubKey (PubKey pub_key) (Tweak t) = unsafePerformIO $
-    Prim.unsafeUseByteString new_bs $ \(pub_key_ptr, _) ->
-        Prim.unsafeUseByteString t $ \(tweak_ptr, _) -> do
-            ret <- Prim.ecPubkeyTweakMul Prim.ctx pub_key_ptr tweak_ptr
-            if Prim.isSuccess ret
-                then return (Just (PubKey new_bs))
-                else return Nothing
-    where
-        new_bs = BS.copy pub_key
-
-
--- | Add multiple public keys together.
-combinePubKeys :: [PubKey] -> Maybe PubKey
-combinePubKeys [] = Nothing
-combinePubKeys pubs = unsafePerformIO $
-    pointers [] pubs $ \ps ->
-        allocaArray (length ps) $ \a -> do
-            out <- mallocBytes 64
-            pokeArray a ps
-            ret <- Prim.ecPubkeyCombine Prim.ctx out a (fromIntegral $ length ps)
-            if Prim.isSuccess ret
-                then do
-                    bs <- Prim.unsafePackByteString (out, 64)
-                    return (Just (PubKey bs))
-                else do
-                    free out
-                    return Nothing
-    where
-        pointers ps [] f = f ps
-        pointers ps (PubKey pub_key : pub_keys) f =
-            Prim.unsafeUseByteString pub_key $ \(p, _) ->
-                pointers (p : ps) pub_keys f
-
-
-instance Arbitrary Msg where
-    arbitrary = gen_msg
-        where
-            valid_bs = bs_gen `suchThat` isJust
-            bs_gen = msg . BS.pack <$> replicateM 32 arbitraryBoundedRandom
-            gen_msg = fromJust <$> valid_bs
-
-
-instance Arbitrary SecKey where
-    arbitrary = gen_key
-        where
-            valid_bs = bs_gen `suchThat` isJust
-            bs_gen = secKey . BS.pack <$> replicateM 32 arbitraryBoundedRandom
-            gen_key = fromJust <$> valid_bs
-
-
-instance Arbitrary PubKey where
-    arbitrary = derivePubKey <$> arbitrary
+-- instance Arbitrary PubKey where
+--     arbitrary = derivePubKey <$> arbitrary
