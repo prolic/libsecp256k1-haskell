@@ -4,6 +4,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
 -- |
@@ -16,7 +17,6 @@
 -- Crytpographic functions from Bitcoin’s secp256k1 library.
 module Crypto.Secp256k1 where
 
-import Control.DeepSeq (NFData)
 import Control.Monad (replicateM, unless, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Cont (ContT (..), evalContT)
@@ -25,18 +25,18 @@ import Crypto.Secp256k1.Prim (flagsEcUncompressed)
 import qualified Crypto.Secp256k1.Prim as Prim
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base16 as B16
+
+-- import qualified Data.ByteString.Base16 as B16
 import Data.ByteString.Unsafe (unsafePackCStringLen, unsafePackMallocCStringLen)
 import Data.Functor (($>))
-import Data.Hashable (Hashable (..))
+
+-- import Data.Hashable (Hashable (..))
 import Data.Maybe (fromJust, fromMaybe, isJust)
-import Data.Serialize (
-    Serialize (..),
-    getByteString,
-    putByteString,
- )
 import Data.String (IsString (..))
-import Data.String.Conversions (ConvertibleStrings, cs)
+
+-- import Data.String.Conversions (ConvertibleStrings, cs)
+
+import Crypto.Hash (Digest, SHA256, digestFromByteString)
 import Foreign (
     Bits (..),
     ForeignPtr,
@@ -44,6 +44,7 @@ import Foreign (
     alloca,
     allocaArray,
     allocaBytes,
+    castForeignPtr,
     castPtr,
     finalizerFree,
     free,
@@ -59,11 +60,6 @@ import Foreign (
 import GHC.Generics (Generic)
 import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
-import Test.QuickCheck (
-    Arbitrary (..),
-    arbitraryBoundedRandom,
-    suchThat,
- )
 import Text.Read (
     Lexeme (String),
     lexP,
@@ -73,23 +69,14 @@ import Text.Read (
  )
 
 
--- | Type for specifying how to serialize 'PubKey'
-data PubKeySize = Size32 | Size33 | Size65
-
-
-newtype PubKeyXY = PubKeyXY (ForeignPtr Prim.Pubkey64)
-    deriving (Eq, Generic)
-newtype PubKeyXO = PubKeyXO (ForeignPtr Prim.XonlyPubkey64)
-    deriving (Eq, Generic)
-newtype KeyPair = KeyPair {unKeyPair :: ForeignPtr Prim.Keypair96}
-newtype MsgHash = MsgHash {unMsg :: ForeignPtr Prim.Msg32}
-newtype Signature = Signature (ForeignPtr Prim.Sig64)
-newtype RecoverableSignature = RecoverableSignature (Ptr Prim.RecSig65)
-    deriving (Eq, Generic)
-newtype SecKey = SecKey {unSecKey :: ForeignPtr Prim.Seckey32}
-    deriving (Eq, Generic)
-newtype Tweak = Tweak {getTweak :: ByteString}
-    deriving (Eq, Generic, NFData)
+newtype SecKey = SecKey {secKeyFPtr :: ForeignPtr Prim.Seckey32}
+newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
+newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
+newtype KeyPair = KeyPair {keyPairFPtr :: ForeignPtr Prim.Keypair96}
+newtype MsgHash = MsgHash {msgHashFPtr :: ForeignPtr Prim.Msg32}
+newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
+newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr :: ForeignPtr Prim.RecSig65}
+newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
 
 
 -- | Preinitialized context for signing and verification
@@ -195,6 +182,10 @@ exportSignatureDer (Signature fptr) = unsafePerformIO $ do
         unsafePackByteString (outBuf, len)
 
 
+importTweak :: ByteString -> Maybe Tweak
+importTweak = fmap (Tweak . castForeignPtr . secKeyFPtr) . importSecKey
+
+
 -- | Verify message signature. 'True' means that the signature is correct.
 ecdsaVerify :: ByteString -> PubKeyXY -> Signature -> Bool
 ecdsaVerify msgHash (PubKeyXY pkFPtr) (Signature sigFPtr) = unsafePerformIO $
@@ -229,29 +220,47 @@ derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
         error "Bug: Invalid Secret Key Constructed"
     PubKeyXY <$> newForeignPtr finalizerFree outBuf
 
--- -- | Add tweak to secret key.
--- tweakAddSecKey :: SecKey -> Tweak -> Maybe SecKey
--- tweakAddSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
---     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
---         unsafeUseByteString t $ \(tweak_ptr, _) -> do
---             ret <- Prim.ecSeckeyTweakAdd Prim.ctx sec_key_ptr tweak_ptr
---             if isSuccess ret
---                 then return (Just (SecKey new_bs))
---                 else return Nothing
---     where
---         new_bs = BS.copy sec_key
 
--- -- | Multiply secret key by tweak.
--- tweakMulSecKey :: SecKey -> Tweak -> Maybe SecKey
--- tweakMulSecKey (SecKey sec_key) (Tweak t) = unsafePerformIO $
---     unsafeUseByteString new_bs $ \(sec_key_ptr, _) ->
---         unsafeUseByteString t $ \(tweak_ptr, _) -> do
---             ret <- Prim.ecSeckeyTweakMul Prim.ctx sec_key_ptr tweak_ptr
---             if isSuccess ret
---                 then return (Just (SecKey new_bs))
---                 else return Nothing
---     where
---         new_bs = BS.copy sec_key
+ecdh :: SecKey -> PubKeyXY -> Digest SHA256
+ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
+    outBuf <- lift (mallocBytes 32)
+    sk <- ContT (withForeignPtr secKeyFPtr)
+    pk <- ContT (withForeignPtr pubKeyXYFPtr)
+    ret <- lift (Prim.ecdh ctx outBuf pk sk Prim.ecdhHashFunctionSha256 nullPtr)
+    if isSuccess ret
+        then do
+            bs <- lift $ unsafePackByteString (outBuf, 32)
+            let Just digest = digestFromByteString bs
+            pure digest
+        else lift (free outBuf) *> error "Bug: Invalid Scalar or Overflow"
+
+
+-- -- | Add tweak to secret key.
+ecSecKeyTweakAdd :: SecKey -> Tweak -> Maybe SecKey
+ecSecKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
+    skPtr <- ContT (withForeignPtr secKeyFPtr)
+    skOut <- lift (mallocBytes 32)
+    lift (memcpy skOut skPtr 32)
+    twkPtr <- ContT (withForeignPtr tweakFPtr)
+    ret <- lift (Prim.ecSeckeyTweakAdd ctx skOut twkPtr)
+    lift $
+        if isSuccess ret
+            then Just . SecKey <$> newForeignPtr finalizerFree skOut
+            else free skOut $> Nothing
+
+
+-- | Multiply secret key by tweak.
+ecSecKeyTweakMul :: SecKey -> Tweak -> Maybe SecKey
+ecSecKeyTweakMul SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
+    skPtr <- ContT (withForeignPtr secKeyFPtr)
+    skOut <- lift (mallocBytes 32)
+    lift (memcpy skOut skPtr 32)
+    twkPtr <- ContT (withForeignPtr tweakFPtr)
+    ret <- lift (Prim.ecSeckeyTweakMul ctx skOut twkPtr)
+    lift $
+        if isSuccess ret
+            then Just . SecKey <$> newForeignPtr finalizerFree skOut
+            else free skOut $> Nothing
 
 -- -- | Add tweak to public key. Tweak is multiplied first by G to obtain a point.
 -- tweakAddPubKey :: PubKey -> Tweak -> Maybe PubKey
@@ -299,20 +308,3 @@ derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
 --         pointers ps (PubKey pub_key : pub_keys) f =
 --             unsafeUseByteString pub_key $ \(p, _) ->
 --                 pointers (p : ps) pub_keys f
-
--- instance Arbitrary Msg where
---     arbitrary = gen_msg
---         where
---             valid_bs = bs_gen `suchThat` isJust
---             bs_gen = msg . BS.pack <$> replicateM 32 arbitraryBoundedRandom
---             gen_msg = fromJust <$> valid_bs
-
--- instance Arbitrary SecKey where
---     arbitrary = gen_key
---         where
---             valid_bs = bs_gen `suchThat` isJust
---             bs_gen = secKey . BS.pack <$> replicateM 32 arbitraryBoundedRandom
---             gen_key = fromJust <$> valid_bs
-
--- instance Arbitrary PubKey where
---     arbitrary = derivePubKey <$> arbitrary
