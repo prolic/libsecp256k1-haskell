@@ -20,7 +20,65 @@
 -- Portability : POSIX
 --
 -- Crytpographic functions from Bitcoin’s secp256k1 library.
-module Crypto.Secp256k1 where
+module Crypto.Secp256k1 (
+    -- * Core Types
+    SecKey,
+    PubKeyXY,
+    PubKeyXO,
+    KeyPair,
+    Signature,
+    RecoverableSignature,
+    Tweak,
+
+    -- * Parsing and Serialization
+    importSecKey,
+    importPubKeyXY,
+    exportPubKeyXY,
+    importPubKeyXO,
+    exportPubKeyXO,
+    importSignature,
+    exportSignatureCompact,
+    exportSignatureDer,
+    importRecoverableSignature,
+    exportRecoverableSignature,
+    importTweak,
+
+    -- * ECDSA Operations
+    ecdsaVerify,
+    ecdsaSign,
+    ecdsaSignRecoverable,
+    ecdsaRecover,
+
+    -- * Conversions
+    recSigToSig,
+    derivePubKey,
+    keyPairCreate,
+    keyPairPubKeyXY,
+    keyPairPubKeyXO,
+    xyToXO,
+
+    -- * Tweaks
+    ecSecKeyTweakAdd,
+    ecSecKeyTweakMul,
+    keyPairPubKeyXOTweakAdd,
+    pubKeyCombine,
+    pubKeyNegate,
+    secKeyNegate,
+    pubKeyTweakAdd,
+    pubKeyTweakMul,
+    pubKeyXOTweakAdd,
+    pubKeyXOTweakAddCheck,
+
+    -- * Schnorr Operations
+    schnorrSign,
+    SchnorrExtra (..),
+    schnorrSignCustom,
+    schnorrVerify,
+
+    -- * Other
+    taggedSha256,
+    ecdh,
+) where
 
 import Control.Monad (replicateM, unless, (<=<))
 import Control.Monad.Trans.Class (lift)
