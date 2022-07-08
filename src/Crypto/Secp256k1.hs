@@ -93,9 +93,6 @@ newtype SecKey = SecKey {secKeyFPtr :: ForeignPtr Prim.Seckey32}
 newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
 newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
 newtype KeyPair = KeyPair {keyPairFPtr :: ForeignPtr Prim.Keypair96}
-
-
--- newtype MsgHash = MsgHash {msgHashFPtr :: ForeignPtr Prim.Msg32}
 newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
 newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr :: ForeignPtr Prim.RecSig65}
 newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
@@ -107,6 +104,7 @@ ctx = unsafePerformIO $ Prim.contextCreate (Prim.flagsContextSign .|. Prim.flags
 {-# NOINLINE ctx #-}
 
 
+-- | Parses 'SecKey', will be @Nothing@ if the @ByteString@ corresponds to 0{32} or is not 32 bytes in length
 importSecKey :: ByteString -> Maybe SecKey
 importSecKey bs
     | BS.length bs /= 32 = Nothing
@@ -121,7 +119,7 @@ importSecKey bs
                 else pure Nothing
 
 
--- | Parses a 33 or 65 byte public key, all other lengths will result in @Nothing@
+-- | Parses a 33 or 65 byte 'PubKeyXY', all other lengths will result in @Nothing@
 importPubKeyXY :: ByteString -> Maybe PubKeyXY
 importPubKeyXY bs = unsafePerformIO $
     unsafeUseByteString bs $ \(input, len) -> do
@@ -135,8 +133,7 @@ importPubKeyXY bs = unsafePerformIO $
             else pure Nothing
 
 
--- | Serialize public key to 'ByteString'. First argument 'True' for compressed output. If the underlying Pubkey is
--- an 'XOnly
+-- | Serialize 'PubKeyXY'. First argument @True@ for compressed output (33 bytes), @False@ for uncompressed (65 bytes).
 exportPubKeyXY :: Bool -> PubKeyXY -> ByteString
 exportPubKeyXY compress (PubKeyXY fptr) = unsafePerformIO $ do
     let flags = if compress then Prim.flagsEcCompressed else Prim.flagsEcUncompressed
@@ -149,6 +146,8 @@ exportPubKeyXY compress (PubKeyXY fptr) = unsafePerformIO $ do
         unsafePackMallocCStringLen (castPtr buf, fromIntegral len)
 
 
+-- | Parses 'PubKeyXO' from @ByteString@, will be @Nothing@ if the pubkey corresponds to the Point at Infinity or the
+-- the @ByteString@ is not 32 bytes long
 importPubKeyXO :: ByteString -> Maybe PubKeyXO
 importPubKeyXO bs
     | BS.length bs /= 32 = Nothing
@@ -161,6 +160,7 @@ importPubKeyXO bs
                 else pure Nothing
 
 
+-- | Serializes 'PubKeyXO' to 32 byte @ByteString@
 exportPubKeyXO :: PubKeyXO -> ByteString
 exportPubKeyXO (PubKeyXO pkFPtr) = unsafePerformIO $ do
     outBuf <- mallocBytes 32
@@ -168,6 +168,7 @@ exportPubKeyXO (PubKeyXO pkFPtr) = unsafePerformIO $ do
     unsafePackByteString (outBuf, 32)
 
 
+-- | Parses 'Signature' from DER (71 | 72 | 73 bytes) or Compact (64 bytes) representations.
 importSignature :: ByteString -> Maybe Signature
 importSignature bs = unsafePerformIO $
     unsafeUseByteString bs $ \(inBuf, len) -> do
@@ -185,6 +186,7 @@ importSignature bs = unsafePerformIO $
             else free outBuf $> Nothing
 
 
+-- | Serializes 'Signature' to Compact (64 byte) representation
 exportSignatureCompact :: Signature -> ByteString
 exportSignatureCompact (Signature fptr) = unsafePerformIO $ do
     outBuf <- mallocBytes 64
@@ -193,6 +195,7 @@ exportSignatureCompact (Signature fptr) = unsafePerformIO $ do
     unsafePackByteString (outBuf, 64)
 
 
+-- | Serializes 'Signature' to DER (71 | 72 bytes) representation
 exportSignatureDer :: Signature -> ByteString
 exportSignatureDer (Signature fptr) = unsafePerformIO $ do
     -- as of Q4'2015 73 byte sigs became nonstandard so we will never create one that big
@@ -204,6 +207,7 @@ exportSignatureDer (Signature fptr) = unsafePerformIO $ do
         unsafePackByteString (outBuf, len)
 
 
+-- | Parses 'RecoverableSignature' from Compact (65 byte) representation
 importRecoverableSignature :: ByteString -> Maybe RecoverableSignature
 importRecoverableSignature bs
     | BS.length bs /= 65 = Nothing
@@ -219,6 +223,7 @@ importRecoverableSignature bs
                 else free outBuf $> Nothing
 
 
+-- | Serializes 'RecoverableSignature' to Compact (65 byte) representation
 exportRecoverableSignature :: RecoverableSignature -> ByteString
 exportRecoverableSignature RecoverableSignature{..} = unsafePerformIO . evalContT $ do
     recSigPtr <- ContT (withForeignPtr recoverableSignatureFPtr)
@@ -230,6 +235,7 @@ exportRecoverableSignature RecoverableSignature{..} = unsafePerformIO . evalCont
         unsafePackByteString (outBuf, 65)
 
 
+-- | Parses 'Tweak' from 32 byte @ByteString@. If the @ByteString@ is an invalid 'SecKey' then this will yield @Nothing@
 importTweak :: ByteString -> Maybe Tweak
 importTweak = fmap (Tweak . castForeignPtr . secKeyFPtr) . importSecKey
 
@@ -244,6 +250,7 @@ ecdsaVerify msgHash (PubKeyXY pkFPtr) (Signature sigFPtr) = unsafePerformIO $
         lift $ isSuccess <$> Prim.ecdsaVerify ctx sigPtr msgHashPtr pkPtr
 
 
+-- | Signs @ByteString@ with 'SecKey' only if @ByteString@ is 32 bytes.
 ecdsaSign :: SecKey -> ByteString -> Maybe Signature
 ecdsaSign (SecKey skFPtr) msgHash
     | BS.length msgHash /= 32 = Nothing
@@ -259,6 +266,8 @@ ecdsaSign (SecKey skFPtr) msgHash
                     else free sigBuf $> Nothing
 
 
+-- | Signs @ByteString@ with 'SecKey' only if @ByteString@ is 32 bytes. Retains ability to compute 'PubKeyXY' from the
+-- 'RecoverableSignature' and the original message (@ByteString@)
 ecdsaSignRecoverable :: SecKey -> ByteString -> Maybe RecoverableSignature
 ecdsaSignRecoverable SecKey{..} bs
     | BS.length bs /= 32 = Nothing
@@ -273,6 +282,7 @@ ecdsaSignRecoverable SecKey{..} bs
                 else free recSigBuf $> Nothing
 
 
+-- | Computes 'PubKeyXY' from 'RecoverableSignature' and the original message that was signed (must be 32 bytes).
 ecdsaRecover :: RecoverableSignature -> ByteString -> Maybe PubKeyXY
 ecdsaRecover RecoverableSignature{..} msgHash
     | BS.length msgHash /= 32 = Nothing
@@ -287,6 +297,7 @@ ecdsaRecover RecoverableSignature{..} msgHash
                 else free pubKeyBuf $> Nothing
 
 
+-- | Forgets the recovery id of a signature
 recSigToSig :: RecoverableSignature -> Signature
 recSigToSig RecoverableSignature{..} = unsafePerformIO . evalContT $ do
     recSigPtr <- ContT (withForeignPtr recoverableSignatureFPtr)
@@ -296,6 +307,7 @@ recSigToSig RecoverableSignature{..} = unsafePerformIO . evalContT $ do
         Signature <$> newForeignPtr finalizerFree sigBuf
 
 
+-- | Use 'SecKey' to compute the corresponding 'PubKeyXY'
 derivePubKey :: SecKey -> PubKeyXY
 derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
     outBuf <- mallocBytes 64
@@ -306,6 +318,8 @@ derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
     PubKeyXY <$> newForeignPtr finalizerFree outBuf
 
 
+-- | Compute a shared secret using ECDH and SHA256. This algorithm uses your own 'SecKey', your counterparty's 'PubKeyXY'
+-- and results in a 32 byte SHA256 Digest.
 ecdh :: SecKey -> PubKeyXY -> Digest SHA256
 ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
     outBuf <- lift (mallocBytes 32)
@@ -320,7 +334,7 @@ ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
         else lift (free outBuf) *> error "Bug: Invalid Scalar or Overflow"
 
 
--- -- | Add tweak to secret key.
+-- -- | Add 'Tweak' to 'SecKey'.
 ecSecKeyTweakAdd :: SecKey -> Tweak -> Maybe SecKey
 ecSecKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
     skPtr <- ContT (withForeignPtr secKeyFPtr)
@@ -334,7 +348,7 @@ ecSecKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free skOut $> Nothing
 
 
--- | Multiply secret key by tweak.
+-- | Multiply 'SecKey' by 'Tweak'.
 ecSecKeyTweakMul :: SecKey -> Tweak -> Maybe SecKey
 ecSecKeyTweakMul SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
     skPtr <- ContT (withForeignPtr secKeyFPtr)
@@ -348,6 +362,7 @@ ecSecKeyTweakMul SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free skOut $> Nothing
 
 
+-- | Compute 'KeyPair' structure from 'SecKey'
 keyPairCreate :: SecKey -> KeyPair
 keyPairCreate SecKey{..} = unsafePerformIO $ do
     keyPairBuf <- mallocBytes 96
@@ -358,6 +373,7 @@ keyPairCreate SecKey{..} = unsafePerformIO $ do
     KeyPair <$> newForeignPtr finalizerFree keyPairBuf
 
 
+-- | Project 'PubKeyXY' from 'KeyPair'
 keyPairPubKeyXY :: KeyPair -> PubKeyXY
 keyPairPubKeyXY KeyPair{..} = unsafePerformIO $ do
     pubKeyBuf <- mallocBytes 64
@@ -368,6 +384,7 @@ keyPairPubKeyXY KeyPair{..} = unsafePerformIO $ do
     PubKeyXY <$> newForeignPtr finalizerFree pubKeyBuf
 
 
+-- | Project 'SecKey' from 'KeyPair'
 keyPairSecKey :: KeyPair -> SecKey
 keyPairSecKey KeyPair{..} = unsafePerformIO $ do
     secKeyBuf <- mallocBytes 32
@@ -378,6 +395,9 @@ keyPairSecKey KeyPair{..} = unsafePerformIO $ do
     SecKey <$> newForeignPtr finalizerFree secKeyBuf
 
 
+-- | Project 'PubKeyXO' from 'KeyPair' as well as parity bit. @True@ indicates that the public key is the same as it
+-- would be if you had serialized the 'PubKeyXO' and it was prefixed with 'Prim.flagsTagPubkeyOdd'. @False@ indicates
+-- it would be prefixed by 'Prim.flagsTagPubkeyEven'
 keyPairPubKeyXO :: KeyPair -> (PubKeyXO, Bool)
 keyPairPubKeyXO KeyPair{..} = unsafePerformIO $ do
     pubKeyBuf <- mallocBytes 64
@@ -398,6 +418,7 @@ keyPairPubKeyXO KeyPair{..} = unsafePerformIO $ do
     (,negated) . PubKeyXO <$> newForeignPtr finalizerFree pubKeyBuf
 
 
+-- | Tweak a 'KeyPair' with a 'Tweak'. If the resulting 'KeyPair' is invalid (0, Infinity), then the result is @Nothing@
 keyPairPubKeyXOTweakAdd :: KeyPair -> Tweak -> Maybe KeyPair
 keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
     keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
@@ -411,6 +432,8 @@ keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free keyPairOut $> Nothing
 
 
+-- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get a @Just@ out of this
+-- function
 schnorrSign :: KeyPair -> ByteString -> Maybe Signature
 schnorrSign KeyPair{..} bs
     | BS.length bs /= 32 = Nothing
@@ -426,11 +449,16 @@ schnorrSign KeyPair{..} bs
                 else free sigBuf $> Nothing
 
 
+-- | Extra parameters object for alternative nonce generation
 data SchnorrExtra a = Storable a =>
     SchnorrExtra
     { schnorrExtraNonceFunHardened :: ByteString -> SecKey -> PubKeyXO -> ByteString -> a -> Maybe (SizedByteArray 32 ByteString)
     , schnorrExtraData :: a
     }
+
+
+-- | Compute a schnorr signature with an alternative scheme for generating nonces, it is not recommended you use this
+-- unless you know what you are doing. Instead, favor the usage of 'schnorrSign'
 schnorrSignCustom :: forall a. KeyPair -> ByteString -> SchnorrExtra a -> Maybe Signature
 schnorrSignCustom KeyPair{..} msg SchnorrExtra{..} = unsafePerformIO . evalContT $ do
     (msgPtr, msgLen) <- ContT (unsafeUseByteString msg)
@@ -477,6 +505,7 @@ schnorrSignCustom KeyPair{..} msg SchnorrExtra{..} = unsafePerformIO . evalContT
                     pure 1
 
 
+-- | Verify the authenticity of a schnorr signature. @True@ means the 'Signature' is correct.
 schnorrVerify :: PubKeyXO -> ByteString -> Signature -> Bool
 schnorrVerify PubKeyXO{..} bs Signature{..} = unsafePerformIO . evalContT $ do
     pubKeyPtr <- ContT (withForeignPtr pubKeyXOFPtr)
@@ -485,6 +514,7 @@ schnorrVerify PubKeyXO{..} bs Signature{..} = unsafePerformIO . evalContT $ do
     lift $ isSuccess <$> Prim.schnorrsigSignVerify ctx signaturePtr msgPtr msgLen pubKeyPtr
 
 
+-- | Generate a tagged sha256 digest as specified in BIP340
 taggedSha256 :: ByteString -> ByteString -> Digest SHA256
 taggedSha256 tag msg = unsafePerformIO . evalContT $ do
     (tagBuf, tagLen) <- ContT (unsafeUseByteString tag)
@@ -500,6 +530,8 @@ taggedSha256 tag msg = unsafePerformIO . evalContT $ do
         pure digest
 
 
+-- | Combine a list of 'PubKeyXY's into a single 'PubKeyXY'. This will result in @Nothing@ if the group operation results
+-- in the Point at Infinity
 pubKeyCombine :: [PubKeyXY] -> Maybe PubKeyXY
 pubKeyCombine keys = unsafePerformIO $ do
     let n = length keys
@@ -513,6 +545,7 @@ pubKeyCombine keys = unsafePerformIO $ do
         else free outBuf $> Nothing
 
 
+-- | Negate a 'PubKeyXY'
 pubKeyNegate :: PubKeyXY -> PubKeyXY
 pubKeyNegate PubKeyXY{..} = unsafePerformIO $ do
     outBuf <- mallocBytes 64
@@ -521,6 +554,7 @@ pubKeyNegate PubKeyXY{..} = unsafePerformIO $ do
     PubKeyXY <$> newForeignPtr finalizerFree outBuf
 
 
+-- | Add 'Tweak' to 'PubKeyXY'. This will result in @Nothing@ if the group operation results in the Point at Infinity
 pubKeyTweakAdd :: PubKeyXY -> Tweak -> Maybe PubKeyXY
 pubKeyTweakAdd PubKeyXY{..} Tweak{..} = unsafePerformIO . evalContT $ do
     pubKeyPtr <- ContT (withForeignPtr pubKeyXYFPtr)
@@ -534,6 +568,7 @@ pubKeyTweakAdd PubKeyXY{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free pubKeyOutBuf $> Nothing
 
 
+-- | Multiply 'PubKeyXY' by 'Tweak'. This will result in @Nothing@ if the group operation results in the Point at Infinity
 pubKeyTweakMul :: PubKeyXY -> Tweak -> Maybe PubKeyXY
 pubKeyTweakMul PubKeyXY{..} Tweak{..} = unsafePerformIO . evalContT $ do
     pubKeyPtr <- ContT (withForeignPtr pubKeyXYFPtr)
@@ -547,6 +582,7 @@ pubKeyTweakMul PubKeyXY{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free pubKeyOutBuf $> Nothing
 
 
+-- | Negate a 'SecKey'
 secKeyNegate :: SecKey -> SecKey
 secKeyNegate SecKey{..} = unsafePerformIO $ do
     outBuf <- mallocBytes 32
@@ -555,6 +591,7 @@ secKeyNegate SecKey{..} = unsafePerformIO $ do
     SecKey <$> newForeignPtr finalizerFree outBuf
 
 
+-- | Convert 'PubKeyXY' to 'PubKeyXO'. See 'keyPairPubKeyXO' for more information on how to interpret the parity bit.
 xyToXO :: PubKeyXY -> (PubKeyXO, Bool)
 xyToXO PubKeyXY{..} = unsafePerformIO $ do
     outBuf <- mallocBytes 64
@@ -571,6 +608,7 @@ xyToXO PubKeyXY{..} = unsafePerformIO $ do
     (,negated) . PubKeyXO <$> newForeignPtr finalizerFree outBuf
 
 
+-- | Add 'Tweak' to 'PubKeyXO'. This will result in @Nothing@ if the group operation results in the Point at Infinity
 pubKeyXOTweakAdd :: PubKeyXO -> Tweak -> Maybe PubKeyXY
 pubKeyXOTweakAdd PubKeyXO{..} Tweak{..} = unsafePerformIO . evalContT $ do
     pubKeyXOPtr <- ContT (withForeignPtr pubKeyXOFPtr)
@@ -583,6 +621,7 @@ pubKeyXOTweakAdd PubKeyXO{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free outBuf $> Nothing
 
 
+-- | Check that a 'PubKeyXO' is the result of the specified tweak operation. @True@ means it was.
 pubKeyXOTweakAddCheck :: PubKeyXO -> Bool -> PubKeyXO -> Tweak -> Bool
 pubKeyXOTweakAddCheck PubKeyXO{pubKeyXOFPtr = tweakedFPtr} parity PubKeyXO{pubKeyXOFPtr = origFPtr} Tweak{..} =
     unsafePerformIO . evalContT $ do
