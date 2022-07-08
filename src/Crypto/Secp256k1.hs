@@ -100,8 +100,8 @@ import Data.String (IsString (..))
 
 -- import Data.String.Conversions (ConvertibleStrings, cs)
 
-import Crypto.Hash (Digest, SHA256, digestFromByteString)
 import Data.Foldable (for_)
+import Data.Memory.PtrMethods (memCompare)
 import Foreign (
     Bits (..),
     ForeignPtr,
@@ -148,12 +148,83 @@ import Text.Read (
 
 
 newtype SecKey = SecKey {secKeyFPtr :: ForeignPtr Prim.Seckey32}
+instance Eq SecKey where
+    sk == sk' = unsafePerformIO . evalContT $ do
+        skp <- ContT $ withForeignPtr (secKeyFPtr sk)
+        skp' <- ContT $ withForeignPtr (secKeyFPtr sk')
+        (EQ ==) <$> lift (memCompare (castPtr skp) (castPtr skp') 32)
+instance Ord SecKey where
+    sk `compare` sk' = unsafePerformIO . evalContT $ do
+        skp <- ContT $ withForeignPtr (secKeyFPtr sk)
+        skp' <- ContT $ withForeignPtr (secKeyFPtr sk')
+        lift (memCompare (castPtr skp) (castPtr skp') 32)
+
+
 newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
+instance Eq PubKeyXY where
+    pk == pk' = unsafePerformIO . evalContT $ do
+        pkp <- ContT . withForeignPtr . pubKeyXYFPtr $ pk
+        pkp' <- ContT . withForeignPtr . pubKeyXYFPtr $ pk'
+        res <- lift (Prim.ecPubkeyCmp ctx pkp pkp')
+        pure $ res == 0
+instance Ord PubKeyXY where
+    pk `compare` pk' = unsafePerformIO . evalContT $ do
+        pkp <- ContT . withForeignPtr . pubKeyXYFPtr $ pk
+        pkp' <- ContT . withForeignPtr . pubKeyXYFPtr $ pk'
+        res <- lift (Prim.ecPubkeyCmp ctx pkp pkp')
+        pure $ compare res 0
+
+
 newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
+instance Eq PubKeyXO where
+    pk == pk' = unsafePerformIO . evalContT $ do
+        pkp <- ContT . withForeignPtr . pubKeyXOFPtr $ pk
+        pkp' <- ContT . withForeignPtr . pubKeyXOFPtr $ pk'
+        res <- lift (Prim.xonlyPubkeyCmp ctx pkp pkp')
+        pure $ res == 0
+instance Ord PubKeyXO where
+    pk `compare` pk' = unsafePerformIO . evalContT $ do
+        pkp <- ContT . withForeignPtr . pubKeyXOFPtr $ pk
+        pkp' <- ContT . withForeignPtr . pubKeyXOFPtr $ pk'
+        res <- lift (Prim.xonlyPubkeyCmp ctx pkp pkp')
+        pure $ compare res 0
+
+
 newtype KeyPair = KeyPair {keyPairFPtr :: ForeignPtr Prim.Keypair96}
+instance Eq KeyPair where
+    kp == kp' = unsafePerformIO . evalContT $ do
+        kpp <- ContT $ withForeignPtr (keyPairFPtr kp)
+        kpp' <- ContT $ withForeignPtr (keyPairFPtr kp')
+        (EQ ==) <$> lift (memCompare (castPtr kpp) (castPtr kpp') 32)
+
+
 newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
+instance Eq Signature where
+    sig == sig' = unsafePerformIO . evalContT $ do
+        sigp <- ContT $ withForeignPtr (signatureFPtr sig)
+        sigp' <- ContT $ withForeignPtr (signatureFPtr sig')
+        (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 32)
+
+
 newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr :: ForeignPtr Prim.RecSig65}
+instance Eq RecoverableSignature where
+    rs == rs' = unsafePerformIO . evalContT $ do
+        rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
+        rsp' <- ContT $ withForeignPtr (recoverableSignatureFPtr rs')
+        (EQ ==) <$> lift (memCompare (castPtr rsp) (castPtr rsp') 32)
+
+
 newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
+instance Eq Tweak where
+    sk == sk' = unsafePerformIO . evalContT $ do
+        skp <- ContT $ withForeignPtr (tweakFPtr sk)
+        skp' <- ContT $ withForeignPtr (tweakFPtr sk')
+        (EQ ==) <$> lift (memCompare (castPtr skp) (castPtr skp') 32)
+instance Ord Tweak where
+    sk `compare` sk' = unsafePerformIO . evalContT $ do
+        skp <- ContT $ withForeignPtr (tweakFPtr sk)
+        skp' <- ContT $ withForeignPtr (tweakFPtr sk')
+        lift (memCompare (castPtr skp) (castPtr skp') 32)
 
 
 -- | Preinitialized context for signing and verification
@@ -378,7 +449,7 @@ derivePubKey (SecKey skFPtr) = unsafePerformIO $ do
 
 -- | Compute a shared secret using ECDH and SHA256. This algorithm uses your own 'SecKey', your counterparty's 'PubKeyXY'
 -- and results in a 32 byte SHA256 Digest.
-ecdh :: SecKey -> PubKeyXY -> Digest SHA256
+ecdh :: SecKey -> PubKeyXY -> SizedByteArray 32 ByteString
 ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
     outBuf <- lift (mallocBytes 32)
     sk <- ContT (withForeignPtr secKeyFPtr)
@@ -387,7 +458,7 @@ ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
     if isSuccess ret
         then do
             bs <- lift $ unsafePackByteString (outBuf, 32)
-            let Just digest = digestFromByteString bs
+            let Just digest = sizedByteArray bs
             pure digest
         else lift (free outBuf) *> error "Bug: Invalid Scalar or Overflow"
 
@@ -573,7 +644,7 @@ schnorrVerify PubKeyXO{..} bs Signature{..} = unsafePerformIO . evalContT $ do
 
 
 -- | Generate a tagged sha256 digest as specified in BIP340
-taggedSha256 :: ByteString -> ByteString -> Digest SHA256
+taggedSha256 :: ByteString -> ByteString -> SizedByteArray 32 ByteString
 taggedSha256 tag msg = unsafePerformIO . evalContT $ do
     (tagBuf, tagLen) <- ContT (unsafeUseByteString tag)
     (msgBuf, msgLen) <- ContT (unsafeUseByteString msg)
@@ -584,7 +655,7 @@ taggedSha256 tag msg = unsafePerformIO . evalContT $ do
             free hashBuf
             error "Bug: Invalid use of C Lib"
         bs <- unsafePackByteString (hashBuf, 32)
-        let Just digest = digestFromByteString bs
+        let Just digest = sizedByteArray bs
         pure digest
 
 
