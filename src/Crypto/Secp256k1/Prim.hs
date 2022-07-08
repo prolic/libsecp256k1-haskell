@@ -1069,25 +1069,20 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_pub"
 --  Calling this function and then 'keypairPub' results in the same
 --  public key as calling 'keypairXonlyPub' and then
 --  'xonlyPubkeyTweakAdd'.
---
---  Returns: 0 if the arguments are invalid or the resulting keypair would be
---           invalid (only when the tweak is the negation of the keypair's
---           secret key). 1 otherwise.
---
---  Args:       ctx: pointer to a context object initialized for verification
---                   (cannot be NULL)
---  In/Out: keypair: pointer to a keypair to apply the tweak to. Will be set to
---                   an invalid value if this function returns 0 (cannot be
---                   NULL).
---  In:     tweak32: pointer to a 32-byte tweak. If the tweak is invalid according
---                   to 'ecSeckeyVerify', this function returns 0. For
---                   uniformly random 32-byte arrays the chance of being invalid
---                   is negligible (around 1 in 2^128) (cannot be NULL).
 foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_tweak_add"
     keypairXonlyTweakAdd ::
+        -- | pointer to a context object initialized for verification
+        -- (cannot be NULL)
         Ctx ->
+        -- | __Mutates:__ pointer to a keypair to apply the tweak to. Will be set to
+        -- an invalid value if this function returns 0 (cannot be NULL).
         Ptr Keypair96 ->
+        -- | __Input:__ pointer to a 32-byte tweak. If the tweak is invalid according
+        -- to 'ecSeckeyVerify', this function returns 0. For uniformly random 32-byte
+        -- arrays the chance of being invalid is negligible (around 1 in 2^128) (cannot be NULL).
         Ptr Tweak32 ->
+        -- | __Returns:__ 0 if the arguments are invalid or the resulting keypair would be
+        -- invalid (only when the tweak is the negation of the keypair's secret key). 1 otherwise.
         IO Ret
 
 
@@ -1158,10 +1153,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign_custom"
         Ptr (Bytes n) ->
         -- | __Input:__ length of the message
         CSize ->
-        -- | __Input:__ 32 bytes of fresh randomness. While recommended to provide
-        -- this, it is only supplemental to security and can be NULL. See
-        -- BIP-340 "Default Signing" for a full explanation of this
-        -- argument and for guidance if randomness is expensive.
+        -- | __Input:__ pointer to an initialized keypair (cannot be NULL)
         Ptr Keypair96 ->
         -- | __Input:__ pointer to a extraparams object (can be NULL)
         Ptr SchnorrExtra ->
@@ -1171,7 +1163,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign_custom"
 
 -- | Verify a Schnorr signature.
 foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_verify"
-    schnorrSigSignVerify ::
+    schnorrsigSignVerify ::
         -- | a secp256k1 context object, initialized for verification.
         Ctx ->
         -- | __Input:__ pointer to the 64-byte signature to verify (cannot be NULL)
@@ -1237,7 +1229,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_from_pubkey"
         -- | __Output:__ pointer to an x-only public key object for placing the
         -- converted public key (cannot be NULL)
         Ptr XonlyPubkey64 ->
-        -- __Mutates:__ pointer to an integer that will be set to 1 if the point
+        -- __Output:__ pointer to an integer that will be set to 1 if the point
         -- encoded by xonly_pubkey is the negation of the pubkey and
         -- set to 0 otherwise. (can be NULL)
         Ptr CInt ->
@@ -1310,7 +1302,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add"
 
 
 -- | Checks that a tweaked pubkey is the result of calling
--- 'xonlyPubkeyTweakAdd' with internal_pubkey and tweak32.
+-- 'xonlyPubkeyTweakAdd' with the pubkey and tweak.
 --
 --  The tweaked pubkey is represented by its 32-byte x-only serialization and
 --  its pk_parity, which can both be obtained by converting the result of
@@ -1325,11 +1317,11 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add_check"
         -- (cannot be NULL)
         Ctx ->
         -- | __Input:__ pointer to a serialized xonly_pubkey (cannot be NULL)
-        Ptr (Bytes 32) ->
+        Ptr XonlyPubkey64 ->
         -- | __Input:__ the parity of the tweaked pubkey (whose serialization
         -- is passed in as tweaked_pubkey32). This must match the
         -- pk_parity value that is returned when calling
-        -- 'XonlyPubkey64' with the tweaked pubkey, or
+        -- 'xonlyPubkey' with the tweaked pubkey, or
         -- this function will fail.
         CInt ->
         -- | __Input__ pointer to an x-only public key object to apply the
