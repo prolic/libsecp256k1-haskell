@@ -1,8 +1,6 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE RankNTypes #-}
@@ -32,6 +30,7 @@ module Crypto.Secp256k1 (
 
     -- * Parsing and Serialization
     importSecKey,
+    exportSecKey,
     importPubKeyXY,
     exportPubKeyXY,
     importPubKeyXO,
@@ -86,6 +85,7 @@ import Control.Monad.Trans.Cont (ContT (..), evalContT)
 import Crypto.Secp256k1.Internal
 import Crypto.Secp256k1.Prim (flagsEcUncompressed)
 import qualified Crypto.Secp256k1.Prim as Prim
+import qualified Data.ByteArray.Encoding as BA
 import Data.ByteArray.Sized
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -100,6 +100,7 @@ import Data.String (IsString (..))
 
 -- import Data.String.Conversions (ConvertibleStrings, cs)
 
+import qualified Data.ByteString.Char8 as B8
 import Data.Foldable (for_)
 import Data.Memory.PtrMethods (memCompare)
 import Foreign (
@@ -147,7 +148,16 @@ import Text.Read (
  )
 
 
+-- | Secret Key
 newtype SecKey = SecKey {secKeyFPtr :: ForeignPtr Prim.Seckey32}
+
+
+instance Show SecKey where
+    show SecKey{..} = unsafePerformIO . evalContT $ do
+        secKeyPtr <- ContT (withForeignPtr secKeyFPtr)
+        -- avoid allocating a new bytestring because we are only reading from this pointer
+        bs <- lift (Data.ByteString.Unsafe.unsafePackCStringLen (castPtr secKeyPtr, 32))
+        pure $ "0x" <> B8.unpack (BA.convertToBase BA.Base16 bs)
 instance Eq SecKey where
     sk == sk' = unsafePerformIO . evalContT $ do
         skp <- ContT $ withForeignPtr (secKeyFPtr sk)
@@ -160,7 +170,14 @@ instance Ord SecKey where
         lift (memCompare (castPtr skp) (castPtr skp') 32)
 
 
+-- | Public Key with both X and Y coordinates
 newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
+
+
+instance Show PubKeyXY where
+    show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXY True pk))
+
+
 instance Eq PubKeyXY where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXYFPtr $ pk
@@ -175,7 +192,14 @@ instance Ord PubKeyXY where
         pure $ compare res 0
 
 
+-- | Public Key with only an X coordinate.
 newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
+
+
+instance Show PubKeyXO where
+    show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXO pk))
+
+
 instance Eq PubKeyXO where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXOFPtr $ pk
@@ -190,7 +214,10 @@ instance Ord PubKeyXO where
         pure $ compare res 0
 
 
+-- | Structure containing information equivalent to 'SecKey' and 'PubKeyXY'
 newtype KeyPair = KeyPair {keyPairFPtr :: ForeignPtr Prim.Keypair96}
+
+
 instance Eq KeyPair where
     kp == kp' = unsafePerformIO . evalContT $ do
         kpp <- ContT $ withForeignPtr (keyPairFPtr kp)
@@ -198,7 +225,12 @@ instance Eq KeyPair where
         (EQ ==) <$> lift (memCompare (castPtr kpp) (castPtr kpp') 32)
 
 
+-- | Structure containing Signature (R,S) data.
 newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
+
+
+instance Show Signature where
+    show sig = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportSignatureCompact sig))
 instance Eq Signature where
     sig == sig' = unsafePerformIO . evalContT $ do
         sigp <- ContT $ withForeignPtr (signatureFPtr sig)
@@ -206,7 +238,10 @@ instance Eq Signature where
         (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 32)
 
 
+-- | Structure containing Signature AND recovery ID
 newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr :: ForeignPtr Prim.RecSig65}
+
+
 instance Eq RecoverableSignature where
     rs == rs' = unsafePerformIO . evalContT $ do
         rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
@@ -214,7 +249,10 @@ instance Eq RecoverableSignature where
         (EQ ==) <$> lift (memCompare (castPtr rsp) (castPtr rsp') 32)
 
 
+-- | Isomorphic to 'SecKey' but specifically used for tweaking (EC Group operations) other keys
 newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
+
+
 instance Eq Tweak where
     sk == sk' = unsafePerformIO . evalContT $ do
         skp <- ContT $ withForeignPtr (tweakFPtr sk)
@@ -248,29 +286,39 @@ importSecKey bs
                 else pure Nothing
 
 
+exportSecKey :: SecKey -> ByteString
+exportSecKey SecKey{..} = unsafePerformIO . evalContT $ do
+    secKeyPtr <- ContT (withForeignPtr secKeyFPtr)
+    lift $ packByteString (secKeyPtr, 32)
+
+
 -- | Parses a 33 or 65 byte 'PubKeyXY', all other lengths will result in @Nothing@
 importPubKeyXY :: ByteString -> Maybe PubKeyXY
-importPubKeyXY bs = unsafePerformIO $
-    unsafeUseByteString bs $ \(input, len) -> do
-        pubkeyOutputBuf <- mallocBytes 64
+importPubKeyXY bs = unsafePerformIO . evalContT $ do
+    (input, len) <- ContT (unsafeUseByteString bs)
+    lift $ do
         if len == 33 || len == 65
             then do
-                ret <- Prim.ecPubkeyParse ctx (castPtr pubkeyOutputBuf) input len
+                pubkeyOutputBuf <- mallocBytes 64
+                ret <- Prim.ecPubkeyParse ctx pubkeyOutputBuf input len
                 if isSuccess ret
-                    then Just . PubKeyXY <$> newForeignPtr finalizerFree (castPtr pubkeyOutputBuf)
+                    then Just . PubKeyXY <$> newForeignPtr finalizerFree pubkeyOutputBuf
                     else free pubkeyOutputBuf $> Nothing
             else pure Nothing
 
 
 -- | Serialize 'PubKeyXY'. First argument @True@ for compressed output (33 bytes), @False@ for uncompressed (65 bytes).
 exportPubKeyXY :: Bool -> PubKeyXY -> ByteString
-exportPubKeyXY compress (PubKeyXY fptr) = unsafePerformIO $ do
+exportPubKeyXY compress PubKeyXY{..} = unsafePerformIO . evalContT $ do
     let flags = if compress then Prim.flagsEcCompressed else Prim.flagsEcUncompressed
     let sz = if compress then 33 else 65
-    buf <- mallocBytes sz
-    alloca $ \written -> do
+    ptr <- ContT (withForeignPtr pubKeyXYFPtr)
+    written <- ContT alloca
+    lift $ do
+        poke written (fromIntegral sz)
+        buf <- mallocBytes sz
         -- always succeeds so we don't need to check
-        _ret <- withForeignPtr fptr $ \ptr -> Prim.ecPubkeySerialize ctx buf written ptr flags
+        _ret <- Prim.ecPubkeySerialize ctx buf written ptr flags
         len <- peek written
         unsafePackMallocCStringLen (castPtr buf, fromIntegral len)
 
@@ -286,7 +334,7 @@ importPubKeyXO bs
             ret <- Prim.xonlyPubkeyParse ctx outBuf ptr
             if isSuccess ret
                 then Just . PubKeyXO <$> newForeignPtr finalizerFree outBuf
-                else pure Nothing
+                else free outBuf $> Nothing
 
 
 -- | Serializes 'PubKeyXO' to 32 byte @ByteString@
@@ -307,11 +355,11 @@ importSignature bs = unsafePerformIO $
                     -- compact
                     | len == 64 -> Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
                     -- der
-                    | len >= 71 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
+                    | len >= 69 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
                     -- invalid
                     | otherwise -> pure 0
         if isSuccess ret
-            then Just . Signature <$> newForeignPtr finalizerFree (castPtr outBuf)
+            then Just . Signature <$> newForeignPtr finalizerFree outBuf
             else free outBuf $> Nothing
 
 
@@ -330,6 +378,7 @@ exportSignatureDer (Signature fptr) = unsafePerformIO $ do
     -- as of Q4'2015 73 byte sigs became nonstandard so we will never create one that big
     outBuf <- mallocBytes 72
     alloca $ \written -> do
+        poke written 72
         -- always succeeds
         _ret <- withForeignPtr fptr $ Prim.ecdsaSignatureSerializeDer ctx outBuf written
         len <- peek written
@@ -383,16 +432,16 @@ ecdsaVerify msgHash (PubKeyXY pkFPtr) (Signature sigFPtr) = unsafePerformIO $
 ecdsaSign :: SecKey -> ByteString -> Maybe Signature
 ecdsaSign (SecKey skFPtr) msgHash
     | BS.length msgHash /= 32 = Nothing
-    | otherwise = unsafePerformIO $
-        evalContT $ do
-            skPtr <- ContT (withForeignPtr skFPtr)
-            (msgHashPtr, _) <- ContT (unsafeUseByteString msgHash)
-            sigBuf <- lift $ mallocBytes 64
-            ret <- lift $ Prim.ecdsaSign ctx sigBuf msgHashPtr skPtr Prim.nonceFunctionDefault nullPtr
-            lift $
-                if isSuccess ret
-                    then Just . Signature <$> newForeignPtr finalizerFree sigBuf
-                    else free sigBuf $> Nothing
+    | otherwise = unsafePerformIO . evalContT $ do
+        skPtr <- ContT (withForeignPtr skFPtr)
+        (msgHashPtr, _) <- ContT (unsafeUseByteString msgHash)
+        lift $ do
+            sigBuf <- mallocBytes 64
+            entropy <- mallocBytes 32
+            ret <- Prim.ecdsaSign ctx sigBuf msgHashPtr skPtr Prim.nonceFunctionRfc6979 entropy
+            if isSuccess ret
+                then Just . Signature <$> newForeignPtr finalizerFree sigBuf
+                else free sigBuf $> Nothing
 
 
 -- | Signs @ByteString@ with 'SecKey' only if @ByteString@ is 32 bytes. Retains ability to compute 'PubKeyXY' from the
@@ -553,8 +602,8 @@ keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
     keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
     tweakPtr <- ContT (withForeignPtr tweakFPtr)
     lift $ do
-        keyPairOut <- (mallocBytes 96)
-        _ <- (memcpy keyPairOut keyPairPtr 96)
+        keyPairOut <- mallocBytes 96
+        _ <- memcpy keyPairOut keyPairPtr 96
         ret <- Prim.keypairXonlyTweakAdd ctx keyPairOut tweakPtr
         if isSuccess ret
             then Just . KeyPair <$> newForeignPtr finalizerFree keyPairOut

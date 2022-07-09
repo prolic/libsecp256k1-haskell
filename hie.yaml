@@ -1,7 +1,6 @@
 cradle:
-  cabal:
-    - path: "src"
-      component: "lib:libsecp256k1"
-
-    - path: "test"
+  stack:
+    - path: "./"
+      component: "libsecp256k1:lib"
+    - path: "./test"
       component: "libsecp256k1:test:spec"

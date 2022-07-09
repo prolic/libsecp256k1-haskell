@@ -1,8 +1,9 @@
+{-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Wno-dodgy-foreign-imports #-}
 
 -- |
 -- Module      : Crypto.Secp256k1.Prim
@@ -499,13 +500,13 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdh"
 
 -- | A default ECDH hash function (currently equal to 'ecdhHashFunctionSha256').
 -- Populates the output parameter with 32 bytes.
-foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_function_default"
+foreign import capi safe "secp256k1_ecdh.h value secp256k1_ecdh_hash_function_default"
     ecdhHashFunctionDefault :: FunPtr (EcdhHashFun a)
 
 
 -- | An implementation of SHA256 hash function that applies to compressed public key.
 -- Populates the output parameter with 32 bytes.
-foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_function_sha256"
+foreign import capi safe "secp256k1_ecdh.h value secp256k1_ecdh_hash_function_sha256"
     ecdhHashFunctionSha256 :: FunPtr (EcdhHashFun a)
 
 
@@ -513,14 +514,14 @@ foreign import ccall safe "secp256k1.h &secp256k1_ecdh_hash_function_sha256"
 
 
 -- | A default safe nonce generation function (currently equal to 'nonceFunctionRfc6979').
-foreign import ccall safe "secp256k1.h &secp256k1_nonce_function_default"
+foreign import capi safe "secp256k1.h value secp256k1_nonce_function_default"
     nonceFunctionDefault :: FunPtr (NonceFun a)
 
 
 -- | An implementation of RFC6979 (using HMAC-SHA256) as nonce generation function.
 -- If a data pointer is passed, it is assumed to be a pointer to 32 bytes of
 -- extra entropy.
-foreign import ccall safe "secp256k1.h &secp256k1_nonce_function_rfc6979"
+foreign import capi safe "secp256k1.h value secp256k1_nonce_function_rfc6979"
     nonceFunctionRfc6979 :: FunPtr (NonceFun a)
 
 
@@ -1100,7 +1101,7 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_tweak_add"
 --  function will fail and return 0. The hash will be tagged with algo.
 --  Therefore, to create BIP-340 compliant signatures, algo must be set to
 --  "BIP0340/nonce" and algolen to 13.
-foreign import ccall safe "secp256k1.h &secp256k1_nonce_function_bip340"
+foreign import capi safe "secp256k1_schnorrsig.h value secp256k1_nonce_function_bip340"
     nonceFunctionBip340 :: FunPtr (NonceFunHardened a)
 
 
