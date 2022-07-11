@@ -17,12 +17,12 @@ import Foreign
 import System.Entropy
 import Test.HUnit (Assertion, assertBool, assertEqual)
 import Test.Hspec
-import Util
 
 
 spec :: Spec
 spec = do
     pure ()
+
 --     describe "housekeeping" $ do
 --         it "creates context" createContextTest
 --         it "randomizes context" randomizeContextTest
@@ -45,18 +45,15 @@ spec = do
 --         it "multiplies public key" ecPubKeyTweakMulTest
 --         it "combines public keys" ecPubKeyCombineTest
 
-
 -- withEntropy :: (Ptr Seed32 -> IO a) -> IO a
 -- withEntropy f =
 --     getEntropy 32 >>= \e ->
 --         useByteString e $ \(s, _) -> f s
 
-
 -- createContextTest :: Assertion
 -- createContextTest = do
 --     context_ptr <- liftIO $ contextCreate signVerify
 --     assertBool "context not null" $ context_ptr /= nullPtr
-
 
 -- randomizeContextTest :: Assertion
 -- randomizeContextTest = do
@@ -65,7 +62,6 @@ spec = do
 --             contextCreate sign >>= \x ->
 --                 withEntropy (contextRandomize x)
 --     assertBool "context randomized" $ isSuccess ret
-
 
 -- cloneContextTest :: Assertion
 -- cloneContextTest = do
@@ -78,7 +74,6 @@ spec = do
 --     assertBool "original context not null" $ x1 /= nullPtr
 --     assertBool "cloned context not null" $ x2 /= nullPtr
 --     assertBool "context ptrs different" $ x1 /= x2
-
 
 -- ecPubkeyParseTest :: Assertion
 -- ecPubkeyParseTest = do
@@ -93,7 +88,6 @@ spec = do
 --             fromRight undefined $
 --                 decodeBase16
 --                     "03dded4203dac96a7e85f2c374a37ce3e9c9a155a72b64b4551b0bfe779dd44705"
-
 
 -- ecPubKeySerializeTest :: Assertion
 -- ecPubKeySerializeTest = do
@@ -118,7 +112,6 @@ spec = do
 --                 decodeBase16
 --                     "03dded4203dac96a7e85f2c374a37ce3e9c9a155a72b64b4551b0bfe779dd44705"
 
-
 -- ecdsaSignatureParseDerTest :: Assertion
 -- ecdsaSignatureParseDerTest = do
 --     ret <- liftIO $
@@ -134,7 +127,6 @@ spec = do
 --                     \fb2202206f0415ab0e9a977afd78b2c26ef39b3952096d319fd4b101c768ad6c132e30\
 --                     \45"
 
-
 -- parseDer :: Ctx -> ByteString -> IO ByteString
 -- parseDer x bs =
 --     useAsCStringLen bs $ \(d, dl) ->
@@ -142,7 +134,6 @@ spec = do
 --             ret <- ecdsaSignatureParseDer x s (castPtr d) (fromIntegral dl)
 --             unless (isSuccess ret) $ error "could not parse DER"
 --             packByteString (s, 64)
-
 
 -- ecdsaSignatureSerializeDerTest :: Assertion
 -- ecdsaSignatureSerializeDerTest = do
@@ -166,7 +157,6 @@ spec = do
 --                     "3045022100f502bfa07af43e7ef265618b0d929a7619ee01d6150e37eb6eaaf2c8bd37\
 --                     \fb2202206f0415ab0e9a977afd78b2c26ef39b3952096d319fd4b101c768ad6c132e30\
 --                     \45"
-
 
 -- ecdsaVerifyTest :: Assertion
 -- ecdsaVerifyTest = do
@@ -200,19 +190,16 @@ spec = do
 --                 decodeBase16
 --                     "f5cbe7d88182a4b8e400f96b06128921864a18187d114c8ae8541b566c8ace00"
 
-
 -- signCtx :: IO Ctx
 -- signCtx =
 --     contextCreate sign >>= \c ->
 --         withEntropy (contextRandomize c) >>= \r ->
 --             unless (isSuccess r) (error "failed to randomize context") >> return c
 
-
 -- createPubKey :: Ctx -> Ptr SecKey32 -> Ptr PubKey64 -> IO ()
 -- createPubKey x k p = do
 --     ret <- ecPubKeyCreate x p k
 --     unless (isSuccess ret) $ error "failed to create public key"
-
 
 -- ecdsaSignTest :: Assertion
 -- ecdsaSignTest = do
@@ -252,7 +239,6 @@ spec = do
 --                 decodeBase16
 --                     "f65255094d7773ed8dd417badc9fc045c1f80fdc5b2d25172b031ce6933e039a"
 
-
 -- ecSecKeyVerifyTest :: Assertion
 -- ecSecKeyVerifyTest = do
 --     ret <- liftIO $
@@ -265,7 +251,6 @@ spec = do
 --             fromRight undefined $
 --                 decodeBase16
 --                     "f65255094d7773ed8dd417badc9fc045c1f80fdc5b2d25172b031ce6933e039a"
-
 
 -- ecPubkeyCreateTest :: Assertion
 -- ecPubkeyCreateTest = do
@@ -293,7 +278,6 @@ spec = do
 --                     "04dded4203dac96a7e85f2c374a37ce3e9c9a155a72b64b4551b0bfe779dd447051221\
 --                     \3d5ed790522c042dee8e85c4c0ec5f96800b72bc5940c8bc1c5e11e4fcbf"
 
-
 -- ecSecKeyTweakAddTest :: Assertion
 -- ecSecKeyTweakAddTest = do
 --     (ret, tweaked) <-
@@ -319,7 +303,6 @@ spec = do
 --             fromRight undefined $
 --                 decodeBase16
 --                     "ec1e3ce1cefa18a671d51125e2b249688d934b0e28f5d1665384d9b02f929059"
-
 
 -- ecSecKeyTweakMulTest :: Assertion
 -- ecSecKeyTweakMulTest = do
@@ -347,7 +330,6 @@ spec = do
 --                 decodeBase16
 --                     "a96f5962493acb179f60a86a9785fc7a30e0c39b64c09d24fe064d9aef15e4c0"
 
-
 -- serializeKey :: Ctx -> Ptr PubKey64 -> IO ByteString
 -- serializeKey x p = allocaBytes 72 $ \d -> alloca $ \dl -> do
 --     poke dl 72
@@ -356,7 +338,6 @@ spec = do
 --     len <- peek dl
 --     packCStringLen (castPtr d, fromIntegral len)
 
-
 -- parseKey :: Ctx -> ByteString -> IO ByteString
 -- parseKey x bs =
 --     allocaBytes 64 $ \p ->
@@ -364,7 +345,6 @@ spec = do
 --             ret <- ecPubKeyParse x p d dl
 --             unless (isSuccess ret) $ error "could not parse public key"
 --             packByteString (p, 64)
-
 
 -- ecPubKeyTweakAddTest :: Assertion
 -- ecPubKeyTweakAddTest = do
@@ -394,7 +374,6 @@ spec = do
 --                     "04441c3982b97576646e0df0c96736063df6b42f2ee566d13b9f6424302d1379e518fd\
 --                     \c87a14c5435bff7a5db4552042cb4120c6b86a4bbd3d0643f3c14ad01368"
 
-
 -- ecPubKeyTweakMulTest :: Assertion
 -- ecPubKeyTweakMulTest = do
 --     (ret, tweaked) <- liftIO $ do
@@ -422,7 +401,6 @@ spec = do
 --                 decodeBase16
 --                     "04f379dc99cdf5c83e433defa267fbb3377d61d6b779c06a0e4ce29ae3ff5353b12ae4\
 --                     \9c9d07e7368f2ba5a446c203255ce912322991a2d6a9d5d5761c61ed1845"
-
 
 -- ecPubKeyCombineTest :: Assertion
 -- ecPubKeyCombineTest = do

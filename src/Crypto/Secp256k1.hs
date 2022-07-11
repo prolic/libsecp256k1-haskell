@@ -52,13 +52,14 @@ module Crypto.Secp256k1 (
     recSigToSig,
     derivePubKey,
     keyPairCreate,
+    keyPairSecKey,
     keyPairPubKeyXY,
     keyPairPubKeyXO,
     xyToXO,
 
     -- * Tweaks
-    ecSecKeyTweakAdd,
-    ecSecKeyTweakMul,
+    secKeyTweakAdd,
+    secKeyTweakMul,
     keyPairPubKeyXOTweakAdd,
     pubKeyCombine,
     pubKeyNegate,
@@ -70,8 +71,6 @@ module Crypto.Secp256k1 (
 
     -- * Schnorr Operations
     schnorrSign,
-    SchnorrExtra (..),
-    schnorrSignCustom,
     schnorrVerify,
 
     -- * Other
@@ -109,6 +108,8 @@ import Foreign (
     FunPtr,
     Ptr,
     Storable,
+    Word32,
+    Word64,
     Word8,
     alloca,
     allocaArray,
@@ -136,6 +137,7 @@ import Foreign (
     withForeignPtr,
  )
 import Foreign.C (CInt (..), CSize (..))
+import Foreign.Storable (Storable (..))
 import GHC.Generics (Generic)
 import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
@@ -230,7 +232,7 @@ newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
 
 
 instance Show Signature where
-    show sig = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportSignatureCompact sig))
+    show sig = "0x" <> (B8.unpack . encodeBase16) (exportSignatureCompact sig)
 instance Eq Signature where
     sig == sig' = unsafePerformIO . evalContT $ do
         sigp <- ContT $ withForeignPtr (signatureFPtr sig)
@@ -242,6 +244,10 @@ instance Eq Signature where
 newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr :: ForeignPtr Prim.RecSig65}
 
 
+instance Show RecoverableSignature where
+    show recSig = "0x" <> (B8.unpack . encodeBase16) (exportRecoverableSignature recSig)
+
+
 instance Eq RecoverableSignature where
     rs == rs' = unsafePerformIO . evalContT $ do
         rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
@@ -251,6 +257,10 @@ instance Eq RecoverableSignature where
 
 -- | Isomorphic to 'SecKey' but specifically used for tweaking (EC Group operations) other keys
 newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
+
+
+instance Show Tweak where
+    show (Tweak fptr) = show (SecKey $ castForeignPtr fptr)
 
 
 instance Eq Tweak where
@@ -410,6 +420,7 @@ exportRecoverableSignature RecoverableSignature{..} = unsafePerformIO . evalCont
         recIdPtr <- malloc
         _ret <- Prim.ecdsaRecoverableSignatureSerializeCompact ctx outBuf recIdPtr recSigPtr
         recId <- peek recIdPtr
+        pokeByteOff outBuf 64 recId
         unsafePackByteString (outBuf, 65)
 
 
@@ -437,8 +448,7 @@ ecdsaSign (SecKey skFPtr) msgHash
         (msgHashPtr, _) <- ContT (unsafeUseByteString msgHash)
         lift $ do
             sigBuf <- mallocBytes 64
-            entropy <- mallocBytes 32
-            ret <- Prim.ecdsaSign ctx sigBuf msgHashPtr skPtr Prim.nonceFunctionRfc6979 entropy
+            ret <- Prim.ecdsaSign ctx sigBuf msgHashPtr skPtr Prim.nonceFunctionDefault nullPtr
             if isSuccess ret
                 then Just . Signature <$> newForeignPtr finalizerFree sigBuf
                 else free sigBuf $> Nothing
@@ -513,8 +523,8 @@ ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
 
 
 -- -- | Add 'Tweak' to 'SecKey'.
-ecSecKeyTweakAdd :: SecKey -> Tweak -> Maybe SecKey
-ecSecKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
+secKeyTweakAdd :: SecKey -> Tweak -> Maybe SecKey
+secKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
     skPtr <- ContT (withForeignPtr secKeyFPtr)
     skOut <- lift (mallocBytes 32)
     lift (memcpy skOut skPtr 32)
@@ -527,8 +537,8 @@ ecSecKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
 
 
 -- | Multiply 'SecKey' by 'Tweak'.
-ecSecKeyTweakMul :: SecKey -> Tweak -> Maybe SecKey
-ecSecKeyTweakMul SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
+secKeyTweakMul :: SecKey -> Tweak -> Maybe SecKey
+secKeyTweakMul SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
     skPtr <- ContT (withForeignPtr secKeyFPtr)
     skOut <- lift (mallocBytes 32)
     lift (memcpy skOut skPtr 32)
@@ -627,62 +637,6 @@ schnorrSign KeyPair{..} bs
                 else free sigBuf $> Nothing
 
 
--- | Extra parameters object for alternative nonce generation
-data SchnorrExtra a = Storable a =>
-    SchnorrExtra
-    { schnorrExtraNonceFunHardened :: ByteString -> SecKey -> PubKeyXO -> ByteString -> a -> Maybe (SizedByteArray 32 ByteString)
-    , schnorrExtraData :: a
-    }
-
-
--- | Compute a schnorr signature with an alternative scheme for generating nonces, it is not recommended you use this
--- unless you know what you are doing. Instead, favor the usage of 'schnorrSign'
-schnorrSignCustom :: forall a. KeyPair -> ByteString -> SchnorrExtra a -> Maybe Signature
-schnorrSignCustom KeyPair{..} msg SchnorrExtra{..} = unsafePerformIO . evalContT $ do
-    (msgPtr, msgLen) <- ContT (unsafeUseByteString msg)
-    keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
-    lift $ do
-        sigBuf <- mallocBytes 64
-        -- convert fn into funptr
-        funptr <- mkNonceFunHardened primFn
-        -- allocate memory for extra data ptr
-        dataptr <- malloc
-        -- copy data to new pointer
-        poke dataptr schnorrExtraData
-        -- allocate extraparams structure
-        extraPtr <- mallocBytes (4 + sizeOf funptr + sizeOf dataptr)
-        -- fill magic
-        pokeByteOff extraPtr 0 (0xDA :: Word8)
-        pokeByteOff extraPtr 1 (0x6F :: Word8)
-        pokeByteOff extraPtr 2 (0xB3 :: Word8)
-        pokeByteOff extraPtr 3 (0x8C :: Word8)
-        -- fill funptr
-        pokeByteOff extraPtr 4 funptr
-        -- fill dataptr
-        pokeByteOff extraPtr (4 + sizeOf funptr) dataptr
-        ret <- Prim.schnorrsigSignCustom ctx sigBuf msgPtr msgLen keyPairPtr extraPtr
-        freeHaskellFunPtr funptr
-        free dataptr
-        free extraPtr
-        if isSuccess ret
-            then Just . Signature <$> newForeignPtr finalizerFree sigBuf
-            else free sigBuf $> Nothing
-    where
-        primFn :: Storable a => Prim.NonceFunHardened a
-        primFn outBuf msgPtr msgLen sk xopk algo algolen dataPtr = do
-            msg <- unsafePackByteString (msgPtr, msgLen)
-            sk <- SecKey <$> newForeignPtr_ (castPtr sk)
-            xopk <- PubKeyXO <$> newForeignPtr_ (castPtr xopk)
-            algo <- unsafePackByteString (algo, algolen)
-            extra <- peek dataPtr
-            case schnorrExtraNonceFunHardened msg sk xopk algo extra of
-                Nothing -> pure 0
-                Just bs -> evalContT $ do
-                    (hashPtr, _) <- ContT (unsafeUseByteString (unSizedByteArray bs))
-                    lift (memcpy outBuf hashPtr 32)
-                    pure 1
-
-
 -- | Verify the authenticity of a schnorr signature. @True@ means the 'Signature' is correct.
 schnorrVerify :: PubKeyXO -> ByteString -> Signature -> Bool
 schnorrVerify PubKeyXO{..} bs Signature{..} = unsafePerformIO . evalContT $ do
@@ -711,7 +665,7 @@ taggedSha256 tag msg = unsafePerformIO . evalContT $ do
 -- | Combine a list of 'PubKeyXY's into a single 'PubKeyXY'. This will result in @Nothing@ if the group operation results
 -- in the Point at Infinity
 pubKeyCombine :: [PubKeyXY] -> Maybe PubKeyXY
-pubKeyCombine keys = unsafePerformIO $ do
+pubKeyCombine keys@(_ : _) = unsafePerformIO $ do
     let n = length keys
     keysBuf <- mallocBytes (64 * n)
     for_ (zip [0 ..] keys) $ \(i, PubKeyXY{..}) ->
@@ -721,6 +675,7 @@ pubKeyCombine keys = unsafePerformIO $ do
     if isSuccess ret
         then Just . PubKeyXY <$> newForeignPtr finalizerFree outBuf
         else free outBuf $> Nothing
+pubKeyCombine [] = Nothing
 
 
 -- | Negate a 'PubKeyXY'

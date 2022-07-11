@@ -221,7 +221,7 @@ type Ctx = Ptr LCtx
 -- You should call this after 'contextCreate' or
 -- 'contextClone' (and 'contextPreallocatedCreate' or
 -- 'contextClone', resp.), and you may call this repeatedly afterwards.
-foreign import ccall safe "secp256k1.h secp256k1_context_randomize"
+foreign import capi safe "secp256k1.h secp256k1_context_randomize"
     contextRandomize ::
         -- | __Mutated__: pointer to a context object (cannot be NULL)
         Ctx ->
@@ -239,7 +239,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_randomize"
 --  This function uses malloc to allocate memory. It is guaranteed that malloc is
 --  called at most once for every call of this function. If you need to avoid dynamic
 --  memory allocation entirely, see the functions in the [Preallocated](#g:preallocated) section.
-foreign import ccall safe "secp256k1.h secp256k1_context_clone"
+foreign import capi safe "secp256k1.h secp256k1_context_clone"
     contextClone ::
         -- | __Input:__ an existing context to copy (cannot be NULL)
         Ctx ->
@@ -254,7 +254,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_clone"
 --  memory allocation entirely, see the functions in secp256k1_preallocated.h.
 --
 --  See also 'contextRandomize'.
-foreign import ccall safe "secp256k1.h secp256k1_context_create"
+foreign import capi safe "secp256k1.h secp256k1_context_create"
     contextCreate ::
         -- | __Input:__ which parts of the context to initialize.
         ContextFlags ->
@@ -271,7 +271,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_create"
 --  'contextPreallocatedCreate' or 'contextPreallocatedClone', the
 --  behaviour is undefined. In that case, 'contextPreallocatedDestroy' must
 --  be used instead.
-foreign import ccall safe "secp256k1.h secp256k1_context_destroy"
+foreign import capi safe "secp256k1.h secp256k1_context_destroy"
     contextDestroy ::
         -- | an existing context to destroy, constructed using 'contextCreate' or 'contextClone'
         Ctx ->
@@ -302,7 +302,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_destroy"
 --  type serialization/parsing functions which require a context object to maintain
 --  API consistency, but currently do not require expensive precomputations or dynamic
 --  allocations.
-foreign import ccall safe "secp256k1.h secp256k1_context_no_precomp"
+foreign import ccall unsafe "secp256k1.h secp256k1_context_no_precomp"
     contextNoPrecomp :: Ctx
 
 
@@ -315,7 +315,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_no_precomp"
 --  The block of memory is exclusively owned by the created context object during
 --  the lifetime of this context object, see the description of
 --  'contextPreallocatedCreate' for details.
-foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_clone"
+foreign import capi safe "secp256k1_preallocated.h secp256k1_context_preallocated_clone"
     contextPreallocatedClone ::
         -- | __Mutated:__ an existing context to copy (cannot be NULL)
         Ctx ->
@@ -328,7 +328,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_clone"
 
 -- | Determine the memory size of a secp256k1 context object to be copied into
 --  caller-provided memory.
-foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_clone_size"
+foreign import capi safe "secp256k1_preallocated.h secp256k1_context_preallocated_clone_size"
     contextPreallocatedCloneSize ::
         -- | __Input:__ an existing context to copy (cannot be NULL)
         Ctx ->
@@ -354,7 +354,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_clone_size
 --
 --  See also 'contextRandomize'
 --  and 'contextPreallocatedDestroy'.
-foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_create"
+foreign import capi safe "secp256k1_preallocated.h secp256k1_context_preallocated_create"
     contextPreallocatedCreate ::
         -- | __Mutated:__ a pointer to a rewritable contiguous block of memory of
         -- size at least 'contextPreallocatedSize' (flags)
@@ -381,7 +381,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_create"
 --  of memory properly after this function returns, e.g., by calling free on the
 --  preallocated pointer given to 'contextPreallocatedCreate' or
 --  'contextPreallocatedClone'.
-foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_destroy"
+foreign import capi safe "secp256k1_preallocated.h secp256k1_context_preallocated_destroy"
     contextPreallocatedDestroy ::
         -- | an existing context to destroy, constructed using 'contextPreallocatedCreate' or
         -- 'contextPreallocatedClone' (cannot be NULL)
@@ -394,7 +394,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_destroy"
 --
 --  The purpose of this function is to determine how much memory must be provided
 --  to 'contextPreallocatedCreate'.
-foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_size"
+foreign import capi safe "secp256k1_preallocated.h secp256k1_context_preallocated_size"
     contextPreallocatedSize ::
         -- | __Input:__ which parts of the context to initialize.
         CUInt ->
@@ -416,7 +416,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_preallocated_size"
 --  crashing.
 --
 --  See also 'contextSetIllegalCallback'.
-foreign import ccall safe "secp256k1.h secp256k1_context_set_error_callback"
+foreign import capi safe "secp256k1.h secp256k1_context_set_error_callback"
     contextSetErrorCallback ::
         -- | an existing context object (cannot be NULL)
         Ctx ->
@@ -462,7 +462,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_set_error_callback"
 --  the data pointer argument set to NULL.
 --
 --  See also 'contextSetErrorCallback'.
-foreign import ccall safe "secp256k1.h secp256k1_context_set_illegal_callback"
+foreign import capi safe "secp256k1.h secp256k1_context_set_illegal_callback"
     contextSetIllegalCallback ::
         -- | an existing context object (cannot be NULL)
         Ctx ->
@@ -478,7 +478,7 @@ foreign import ccall safe "secp256k1.h secp256k1_context_set_illegal_callback"
 
 
 -- | Compute an EC Diffie-Hellman secret in constant time
-foreign import ccall safe "secp256k1.h secp256k1_ecdh"
+foreign import capi safe "secp256k1.h secp256k1_ecdh"
     ecdh ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -529,7 +529,7 @@ foreign import capi safe "secp256k1.h value secp256k1_nonce_function_rfc6979"
 
 
 -- | Recover an ECDSA public key from a signature.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recover"
+foreign import capi safe "secp256k1_recovery.h secp256k1_ecdsa_recover"
     ecdsaRecover ::
         -- | pointer to a context object, initialized for verification (cannot be NULL)
         Ctx ->
@@ -545,7 +545,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recover"
 
 
 -- | Convert a recoverable signature into a normal signature.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_convert"
+foreign import capi safe "secp256k1_recovery.h secp256k1_ecdsa_recoverable_signature_convert"
     ecdsaRecoverableSignatureConvert ::
         -- | a secp256k1 context object
         Ctx ->
@@ -558,7 +558,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_con
 
 
 -- | Parse a compact ECDSA signature (64 bytes + recovery id).
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_parse_compact"
+foreign import capi safe "secp256k1_recovery.h secp256k1_ecdsa_recoverable_signature_parse_compact"
     ecdsaRecoverableSignatureParseCompact ::
         -- | a secp256k1 context object
         Ctx ->
@@ -573,7 +573,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_par
 
 
 -- | Serialize an ECDSA signature in compact format (64 bytes + recovery id).
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_serialize_compact"
+foreign import capi safe "secp256k1_recovery.h secp256k1_ecdsa_recoverable_signature_serialize_compact"
     ecdsaRecoverableSignatureSerializeCompact ::
         -- | a secp256k1 context object
         Ctx ->
@@ -588,7 +588,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_recoverable_signature_ser
 
 
 -- | Create a recoverable ECDSA signature.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign_recoverable"
+foreign import capi safe "secp256k1_recovery.h secp256k1_ecdsa_sign_recoverable"
     ecdsaSignRecoverable ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -614,7 +614,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign_recoverable"
 --
 -- The created signature is always in lower-S form. See
 -- 'ecdsaSignatureNormalize' for more details.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_sign"
     ecdsaSign ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -643,7 +643,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_sign"
 -- validation, but be aware that doing so results in malleable signatures.
 --
 -- For details, see the comments for that function.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_verify"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_verify"
     ecdsaVerify ::
         -- | a secp256k1 context object, initialized for verification.
         Ctx ->
@@ -696,7 +696,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_verify"
 --  lower-S form, and 'ecdsaVerify' will not accept others. In case
 --  signatures come from a system that cannot enforce this property,
 --  'ecdsaSignatureNormalize' must be called before verification.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_normalize"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_signature_normalize"
     ecdsaSignatureNormalize ::
         -- | a secp256k1 context object
         Ctx ->
@@ -724,7 +724,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_normalize"
 --  After the call, sig will always be initialized. If parsing failed or R or
 --  S are zero, the resulting sig value is guaranteed to fail validation for any
 --  message and public key.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_parse_compact"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_signature_parse_compact"
     ecdsaSignatureParseCompact ::
         -- | __Input:__ a secp256k1 context object
         Ctx ->
@@ -744,7 +744,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_parse_compact"
 --  After the call, sig will always be initialized. If parsing failed or the
 --  encoded numbers are out of range, signature validation with it is
 --  guaranteed to fail for every message and public key.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_parse_der"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_signature_parse_der"
     ecdsaSignatureParseDer ::
         -- | __Input:__ a secp256k1 context object
         Ctx ->
@@ -761,7 +761,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_parse_der"
 -- | Serialize an ECDSA signature in compact (64 byte) format.
 --
 --  See 'ecdsaSignatureParseCompact' for details about the encoding.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_compact"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_signature_serialize_compact"
     ecdsaSignatureSerializeCompact ::
         -- | __Input:__ a secp256k1 context object
         Ctx ->
@@ -774,7 +774,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_compa
 
 
 -- | Serialize an ECDSA signature in DER format.
-foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_der"
+foreign import capi safe "secp256k1.h secp256k1_ecdsa_signature_serialize_der"
     ecdsaSignatureSerializeDer ::
         -- | __Input:__ a secp256k1 context object
         Ctx ->
@@ -795,7 +795,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ecdsa_signature_serialize_der"
 
 
 -- | Compare two public keys using lexicographic (of compressed serialization) order
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_cmp"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_cmp"
     ecPubkeyCmp ::
         -- | __Input:__ a secp256k1 context object.
         Ctx ->
@@ -826,7 +826,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_combine"
 
 
 -- | Compute the public key for a secret key.
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_create"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_create"
     ecPubkeyCreate ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -840,7 +840,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_create"
 
 
 -- | Negates a public key in place.
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_negate"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_negate"
     ecPubkeyNegate ::
         -- | pointer to a context object
         Ctx ->
@@ -855,7 +855,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_negate"
 --  This function supports parsing compressed (33 bytes, header byte 0x02 or
 --  0x03), uncompressed (65 bytes, header byte 0x04), or hybrid (65 bytes, header
 --  byte 0x06 or 0x07) format public keys.
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_parse"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_parse"
     ecPubkeyParse ::
         -- | a secp256k1 context object.
         Ctx ->
@@ -872,7 +872,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_parse"
 
 
 -- | Serialize a pubkey object into a serialized byte sequence.
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_serialize"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_serialize"
     ecPubkeySerialize ::
         -- | a secp256k1 context object.
         Ctx ->
@@ -893,7 +893,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_serialize"
 
 
 -- | Tweak a public key by adding tweak times the generator to it.
-foreign import ccall unsafe "secp256k1.h secp256k1_ec_pubkey_tweak_add"
+foreign import capi unsafe "secp256k1.h secp256k1_ec_pubkey_tweak_add"
     ecPubkeyTweakAdd ::
         -- | pointer to a context object initialized for validation (cannot be NULL).
         Ctx ->
@@ -912,7 +912,7 @@ foreign import ccall unsafe "secp256k1.h secp256k1_ec_pubkey_tweak_add"
 
 
 -- | Tweak a public key by multiplying it by a tweak value.
-foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_tweak_mul"
+foreign import capi safe "secp256k1.h secp256k1_ec_pubkey_tweak_mul"
     ecPubkeyTweakMul ::
         -- | pointer to a context object initialized for validation (cannot be NULL).
         Ctx ->
@@ -929,7 +929,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_pubkey_tweak_mul"
 
 
 -- | Negates a secret key in place.
-foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_negate"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_negate"
     ecSeckeyNegate ::
         -- | pointer to a context object
         Ctx ->
@@ -945,7 +945,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_negate"
 
 
 -- | Tweak a secret key by adding tweak to it.
-foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_add"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_tweak_add"
     ecSeckeyTweakAdd ::
         -- | pointer to a context object (cannot be NULL).
         Ctx ->
@@ -966,7 +966,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_add"
 
 
 -- | Tweak a secret key by multiplying it by a tweak.
-foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_mul"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_tweak_mul"
     ecSeckeyTweakMul ::
         -- | pointer to a context object (cannot be NULL).
         Ctx ->
@@ -990,7 +990,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_tweak_mul"
 --  when interpreted as an integer (most significant byte first). The
 --  probability of choosing a 32-byte string uniformly at random which is an
 --  invalid secret key is negligible.
-foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_verify"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_verify"
     ecSecKeyVerify ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -1001,7 +1001,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_seckey_verify"
 
 
 -- | Compute the keypair for a secret key.
-foreign import ccall safe "secp256k1.h secp256k1_keypair_create"
+foreign import capi safe "secp256k1_extrakeys.h secp256k1_keypair_create"
     keypairCreate ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -1015,7 +1015,7 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_create"
 
 
 -- | Get the public key from a keypair.
-foreign import ccall safe "secp256k1.h secp256k1_keypair_pub"
+foreign import capi safe "secp256k1_extrakeys.h secp256k1_keypair_pub"
     keypairPub ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -1030,7 +1030,7 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_pub"
 
 
 -- | Get the secret key from a keypair.
-foreign import ccall safe "secp256k1.h secp256k1_keypair_sec"
+foreign import capi safe "secp256k1_extrakeys.h secp256k1_keypair_sec"
     keypairSec ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -1046,7 +1046,7 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_sec"
 --
 --  This is the same as calling 'keypairPub' and then
 --  'xonlyPubkeyFromPubkey'.
-foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_pub"
+foreign import capi safe "secp256k1_extrakeys.h secp256k1_keypair_xonly_pub"
     keypairXonlyPub ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -1070,7 +1070,7 @@ foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_pub"
 --  Calling this function and then 'keypairPub' results in the same
 --  public key as calling 'keypairXonlyPub' and then
 --  'xonlyPubkeyTweakAdd'.
-foreign import ccall safe "secp256k1.h secp256k1_keypair_xonly_tweak_add"
+foreign import capi safe "secp256k1_extrakeys.h secp256k1_keypair_xonly_tweak_add"
     keypairXonlyTweakAdd ::
         -- | pointer to a context object initialized for verification
         -- (cannot be NULL)
@@ -1117,7 +1117,7 @@ foreign import capi safe "secp256k1_schnorrsig.h value secp256k1_nonce_function_
 --  'taggedSha256' and then sign the hash. Tagged hashing allows
 --  providing an context-specific tag for domain separation. This prevents
 --  signatures from being valid in multiple contexts by accident.
-foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_schnorrsig_sign"
     schnorrsigSign ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -1144,7 +1144,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign"
 --
 --  Creates the same signatures as schnorrsig_sign if msglen is 32 and the
 --  extraparams.ndata is the same as aux_rand32.
-foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign_custom"
+foreign import capi unsafe "secp256k1_schnorrsig.h secp256k1_schnorrsig_sign_custom"
     schnorrsigSignCustom ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -1163,7 +1163,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_sign_custom"
 
 
 -- | Verify a Schnorr signature.
-foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_verify"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_schnorrsig_verify"
     schnorrsigSignVerify ::
         -- | a secp256k1 context object, initialized for verification.
         Ctx ->
@@ -1186,7 +1186,7 @@ foreign import ccall safe "secp256k1.h secp256k1_schnorrsig_verify"
 --  SHA256(SHA256(tag)||SHA256(tag)||msg). Therefore, tagged hash
 --  implementations optimized for a specific tag can precompute the SHA256 state
 --  after hashing the tag hashes.
-foreign import ccall safe "secp256k1.h secp256k1_tagged_sha256"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_tagged_sha256"
     taggedSha256 ::
         -- | pointer to a context object
         Ctx ->
@@ -1208,7 +1208,7 @@ foreign import ccall safe "secp256k1.h secp256k1_tagged_sha256"
 
 
 -- | Compare two x-only public keys using lexicographic order
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_cmp"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_cmp"
     xonlyPubkeyCmp ::
         -- | a secp256k1 context object.
         Ctx ->
@@ -1223,7 +1223,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_cmp"
 
 
 -- | Converts a 'Pubkey64' into a 'XonlyPubkey64'.
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_from_pubkey"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_from_pubkey"
     xonlyPubkeyFromPubkey ::
         -- | pointer to a context object (cannot be NULL)
         Ctx ->
@@ -1242,7 +1242,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_from_pubkey"
 
 
 -- | Parse a 32-byte sequence into a 'XonlyPubkey64' object.
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_parse"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_parse"
     xonlyPubkeyParse ::
         -- | a secp256k1 context object (cannot be NULL).
         Ctx ->
@@ -1258,7 +1258,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_parse"
 
 
 -- | Serialize an 'XonlyPubkey64' object into a 32-byte sequence.
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_serialize"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_serialize"
     xonlyPubkeySerialize ::
         -- | a secp256k1 context object (cannot be NULL).
         Ctx ->
@@ -1278,7 +1278,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_serialize"
 --  Note that the resulting point can not in general be represented by an x-only
 --  pubkey because it may have an odd Y coordinate. Instead, the output_pubkey
 --  is a normal 'Pubkey64'.
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_tweak_add"
     xonlyPubkeyTweakAdd ::
         -- | pointer to a context object initialized for verification
         -- (cannot be NULL)
@@ -1312,7 +1312,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add"
 --  Note that this alone does _not_ verify that the tweaked pubkey is a
 --  commitment. If the tweak is not chosen in a specific way, the tweaked pubkey
 --  can easily be the result of a different internal_pubkey and tweak.
-foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add_check"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_xonly_pubkey_tweak_add_check"
     xonlyPubkeyTweakAddCheck ::
         -- | pointer to a context object initialized for verification
         -- (cannot be NULL)
@@ -1339,7 +1339,7 @@ foreign import ccall safe "secp256k1.h secp256k1_xonly_pubkey_tweak_add_check"
 
 
 -- | Create a secp256k1 scratch space object.
-foreign import ccall safe "secp256k1.h secp256k1_scratch_space_create"
+foreign import capi safe "secp256k1.h secp256k1_scratch_space_create"
     scratchSpaceCreate ::
         -- | an existing context object (cannot be NULL)
         Ctx ->
@@ -1353,7 +1353,7 @@ foreign import ccall safe "secp256k1.h secp256k1_scratch_space_create"
 -- | Destroy a secp256k1 scratch space.
 --
 --  The pointer may not be used afterwards.
-foreign import ccall safe "secp256k1.h secp256k1_scratch_space_destroy"
+foreign import capi safe "secp256k1.h secp256k1_scratch_space_destroy"
     scratchSpaceDestroy ::
         -- | a secp256k1 context object.
         Ctx ->
@@ -1364,7 +1364,7 @@ foreign import ccall safe "secp256k1.h secp256k1_scratch_space_destroy"
 
 -- * Deprecated
 {-# DEPRECATED ecPrivkeyNegate "use ecSeckeyNegate instead" #-}
-foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_negate"
+foreign import capi safe "secp256k1.h secp256k1_ec_privkey_negate"
     ecPrivkeyNegate ::
         Ctx ->
         Ptr Tweak32 ->
@@ -1372,7 +1372,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_negate"
 
 
 {-# DEPRECATED ecPrivkeyTweakAdd "use ecSeckeyTweakAdd instead" #-}
-foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
+foreign import capi safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
     ecPrivkeyTweakAdd ::
         Ctx ->
         Ptr Seckey32 ->
@@ -1381,7 +1381,7 @@ foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
 
 
 {-# DEPRECATED ecPrivkeyTweakMul "use ecSeckeyTweakMul instead" #-}
-foreign import ccall safe "secp256k1.h secp256k1_ec_privkey_tweak_mul"
+foreign import capi safe "secp256k1.h secp256k1_ec_privkey_tweak_mul"
     ecPrivkeyTweakMul ::
         Ctx ->
         Ptr Seckey32 ->

@@ -10,7 +10,6 @@ import Data.Maybe (fromMaybe, isNothing)
 import Data.String (fromString)
 import Test.HUnit (Assertion, assertEqual)
 import Test.Hspec
-import Util
 
 
 spec :: Spec
