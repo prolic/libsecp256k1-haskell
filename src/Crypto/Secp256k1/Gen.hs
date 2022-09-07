@@ -8,8 +8,8 @@ import Hedgehog.Range (singleton)
 
 secKeyGen :: MonadGen m => m SecKey
 secKeyGen = do
-    bs <- prune $ bytes (singleton 32)
-    maybe discard pure (importSecKey bs)
+    bs <- prune . bytes $ singleton 32
+    maybe discard pure $ importSecKey bs
 
 
 pubKeyXYGen :: MonadGen m => m PubKeyXY

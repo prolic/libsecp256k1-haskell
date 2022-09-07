@@ -64,7 +64,7 @@ prop_pubKeyXOParseInvertsSerialize = property $ do
 
 
 prop_pubKeyXOSerializeInvertsParse :: Property
-prop_pubKeyXOSerializeInvertsParse = property $ do
+prop_pubKeyXOSerializeInvertsParse = withDiscards 200 . property $ do
     bs <- forAll (bytes $ singleton 32)
     case importPubKeyXO bs of
         Nothing -> discard
