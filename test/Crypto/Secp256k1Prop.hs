@@ -7,7 +7,7 @@ import Control.Monad (when)
 import Crypto.Secp256k1
 import Crypto.Secp256k1.Gen
 import Data.ByteArray.Sized (sizedByteArray)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Maybe (fromJust, isJust)
 import Data.Void
 import Hedgehog

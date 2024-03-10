@@ -20,6 +20,8 @@ dependencies:
   - hedgehog
   - memory >= 0.14.15 && <1.0
   - transformers >= 0.4.0.0 && <1.0
+default-extensions:
+  - ImportQualifiedPost
 library:
   source-dirs: src
   pkg-config-dependencies:
@@ -33,7 +35,6 @@ tests:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
-      - base16
       - either
       - hspec
       - libsecp256k1

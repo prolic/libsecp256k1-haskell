@@ -1,7 +1,7 @@
 module Spec where
 
-import qualified Crypto.Secp256k1.PrimSpec as Prim
-import qualified Crypto.Secp256k1Spec as Secp256k1
+import Crypto.Secp256k1.PrimSpec qualified as Prim
+import Crypto.Secp256k1Spec qualified as Secp256k1
 import Test.Hspec
 
 

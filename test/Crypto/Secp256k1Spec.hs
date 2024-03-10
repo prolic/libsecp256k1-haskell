@@ -1,10 +1,10 @@
 module Crypto.Secp256k1Spec (spec) where
 
-import qualified Control.Monad.Par as P
+import Control.Monad.Par qualified as P
 import Crypto.Secp256k1
-import qualified Data.ByteString as BS
-import Data.ByteString.Base16
-import qualified Data.ByteString.Char8 as B8
+import Crypto.Secp256k1.Internal
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as B8
 import Data.Either (fromRight)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.String (fromString)

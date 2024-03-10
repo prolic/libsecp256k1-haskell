@@ -17,8 +17,8 @@
 module Crypto.Secp256k1.Prim where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BU
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BU
 import Foreign (Bits (..), FunPtr, Ptr, castPtr)
 import Foreign.C (
     CInt (..),

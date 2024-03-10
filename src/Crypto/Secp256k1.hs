@@ -85,25 +85,18 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Cont (ContT (..), evalContT)
 import Crypto.Secp256k1.Internal
 import Crypto.Secp256k1.Prim (flagsEcUncompressed)
-import qualified Crypto.Secp256k1.Prim as Prim
-import qualified Data.ByteArray.Encoding as BA
+import Crypto.Secp256k1.Prim qualified as Prim
+import Data.ByteArray.Encoding qualified as BA
 import Data.ByteArray.Sized
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-
--- import qualified Data.ByteString.Base16 as B16
+import Data.ByteString qualified as BS
+import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Unsafe (unsafePackCStringLen, unsafePackMallocCStringLen)
-import Data.Functor (($>))
-
--- import Data.Hashable (Hashable (..))
-import Data.Maybe (fromJust, fromMaybe, isJust)
-import Data.String (IsString (..))
-
--- import Data.String.Conversions (ConvertibleStrings, cs)
-
-import qualified Data.ByteString.Char8 as B8
 import Data.Foldable (for_)
+import Data.Functor (($>))
+import Data.Maybe (fromJust, fromMaybe, isJust)
 import Data.Memory.PtrMethods (memCompare)
+import Data.String (IsString (..))
 import Foreign (
     Bits (..),
     ForeignPtr,

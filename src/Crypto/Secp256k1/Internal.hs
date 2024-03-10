@@ -1,10 +1,10 @@
 module Crypto.Secp256k1.Internal where
 
 import Crypto.Secp256k1.Prim
-import qualified Data.ByteArray.Encoding as BA
+import Data.ByteArray.Encoding qualified as BA
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Unsafe as BU
+import Data.ByteString qualified as BS
+import Data.ByteString.Unsafe qualified as BU
 import Foreign (Ptr, castPtr)
 import Foreign.C (CSize)
 
