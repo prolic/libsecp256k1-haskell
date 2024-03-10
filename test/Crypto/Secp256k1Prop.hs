@@ -75,12 +75,12 @@ prop_signatureParseInvertsSerialize :: Property
 prop_signatureParseInvertsSerialize = property $ do
     sk <- forAll secKeyGen
     bs <- forAll $ bytes (singleton 32)
-    sig <- case ecdsaSign sk bs of
-        Nothing -> failure
-        Just x -> pure x
+
+    sig <- maybe failure pure (ecdsaSign sk bs)
+
     exportDer <- forAll $ element [False, True]
     let export = if exportDer then exportSignatureDer else exportSignatureCompact
-    let serialized = (export sig)
+    let serialized = export sig
     annotateShow serialized
     annotateShow (BS.length serialized)
     case importSignature serialized of
@@ -92,10 +92,10 @@ prop_recoverableSignatureParseInvertsSerialize :: Property
 prop_recoverableSignatureParseInvertsSerialize = property $ do
     sk <- forAll secKeyGen
     bs <- forAll $ bytes (singleton 32)
-    sig <- case ecdsaSignRecoverable sk bs of
-        Nothing -> failure
-        Just x -> pure x
-    let serialized = (exportRecoverableSignature sig)
+
+    sig <- maybe failure pure (ecdsaSignRecoverable sk bs)
+
+    let serialized = exportRecoverableSignature sig
     annotateShow serialized
     annotateShow (BS.length serialized)
     case importRecoverableSignature serialized of
@@ -249,4 +249,4 @@ prop_schnorrSignaturesUnforgeable = property $ do
 
 
 tests :: Group
-tests = $$(discover)
+tests = $$discover
