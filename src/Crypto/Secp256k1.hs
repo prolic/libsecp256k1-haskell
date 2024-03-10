@@ -47,6 +47,7 @@ module Crypto.Secp256k1 (
     ecdsaSign,
     ecdsaSignRecoverable,
     ecdsaRecover,
+    ecdsaNormalizeSignature,
 
     -- * Conversions
     recSigToSig,
@@ -64,6 +65,7 @@ module Crypto.Secp256k1 (
     pubKeyCombine,
     pubKeyNegate,
     secKeyNegate,
+    tweakNegate,
     pubKeyTweakAdd,
     pubKeyTweakMul,
     pubKeyXOTweakAdd,
@@ -362,12 +364,12 @@ importSignature bs = unsafePerformIO $
         outBuf <- mallocBytes 64
         ret <-
             if
-                    -- compact
-                    | len == 64 -> Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
-                    -- der
-                    | len >= 69 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
-                    -- invalid
-                    | otherwise -> pure 0
+                -- compact
+                | len == 64 -> Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
+                -- der
+                | len >= 69 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
+                -- invalid
+                | otherwise -> pure 0
         if isSuccess ret
             then Just . Signature <$> newForeignPtr finalizerFree outBuf
             else free outBuf $> Nothing
@@ -483,6 +485,17 @@ ecdsaRecover RecoverableSignature{..} msgHash
             if isSuccess ret
                 then Just . PubKeyXY <$> newForeignPtr finalizerFree pubKeyBuf
                 else free pubKeyBuf $> Nothing
+
+
+-- | Convert a 'Signature' to a normalized lower-S form. If the 'Signature' was already in its lower-S form it will
+-- be equal to the input.
+ecdsaNormalizeSignature :: Signature -> Signature
+ecdsaNormalizeSignature Signature{..} = unsafePerformIO . evalContT $ do
+    sigPtr <- ContT (withForeignPtr signatureFPtr)
+    lift $ do
+        outBuf <- mallocBytes 64
+        _ret <- Prim.ecdsaSignatureNormalize ctx outBuf sigPtr
+        Signature <$> newForeignPtr finalizerFree outBuf
 
 
 -- | Forgets the recovery id of a signature
@@ -722,6 +735,16 @@ secKeyNegate SecKey{..} = unsafePerformIO $ do
     withForeignPtr secKeyFPtr $ flip (memcpy outBuf) 32
     _ret <- Prim.ecSeckeyNegate ctx outBuf
     SecKey <$> newForeignPtr finalizerFree outBuf
+
+
+-- | Negate a 'Tweak'
+tweakNegate :: Tweak -> Tweak
+tweakNegate Tweak{..} = unsafePerformIO $ do
+    outBuf <- mallocBytes 32
+    let asKey = castForeignPtr tweakFPtr
+    withForeignPtr asKey $ flip (memcpy outBuf) 32
+    _ret <- Prim.ecSeckeyNegate ctx outBuf
+    Tweak <$> newForeignPtr finalizerFree (castPtr outBuf)
 
 
 -- | Convert 'PubKeyXY' to 'PubKeyXO'. See 'keyPairPubKeyXO' for more information on how to interpret the parity bit.

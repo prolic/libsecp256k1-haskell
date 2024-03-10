@@ -33,6 +33,9 @@ tests:
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
+      - base16
+      - either
       - hspec
       - libsecp256k1
+      - monad-par
       - HUnit
