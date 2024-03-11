@@ -42,7 +42,9 @@ library
   build-depends:
       base >=4.9 && <5
     , bytestring >=0.10.8 && <0.12
+    , deepseq
     , entropy >=0.3.8 && <0.5
+    , hashable
     , hedgehog ==1.2.*
     , memory >=0.14.15 && <1.0
     , transformers >=0.4.0.0 && <1.0
@@ -67,8 +69,10 @@ test-suite spec
       HUnit
     , base >=4.9 && <5
     , bytestring >=0.10.8 && <0.12
+    , deepseq
     , either
     , entropy >=0.3.8 && <0.5
+    , hashable
     , hedgehog ==1.2.*
     , hspec
     , libsecp256k1

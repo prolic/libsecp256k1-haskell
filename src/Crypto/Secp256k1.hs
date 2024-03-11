@@ -80,6 +80,7 @@ module Crypto.Secp256k1 (
     ecdh,
 ) where
 
+import Control.DeepSeq (NFData (..))
 import Control.Monad (replicateM, unless, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Cont (ContT (..), evalContT)
@@ -94,7 +95,8 @@ import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Unsafe (unsafePackCStringLen, unsafePackMallocCStringLen)
 import Data.Foldable (for_)
 import Data.Functor (($>))
-import Data.Maybe (fromJust, fromMaybe, isJust)
+import Data.Hashable (Hashable (..))
+import Data.Maybe (fromJust, fromMaybe, isJust, maybeToList)
 import Data.Memory.PtrMethods (memCompare)
 import Data.String (IsString (..))
 import Foreign (
@@ -155,6 +157,12 @@ instance Show SecKey where
         -- avoid allocating a new bytestring because we are only reading from this pointer
         bs <- lift (Data.ByteString.Unsafe.unsafePackCStringLen (castPtr secKeyPtr, 32))
         pure $ "0x" <> B8.unpack (BA.convertToBase BA.Base16 bs)
+instance Read SecKey where
+    readsPrec i s = case s of
+        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
+            Left e -> []
+            Right a -> maybeToList $ (,"") <$> importSecKey a
+        _ -> []
 instance Eq SecKey where
     sk == sk' = unsafePerformIO . evalContT $ do
         skp <- ContT $ withForeignPtr (secKeyFPtr sk)
@@ -165,6 +173,10 @@ instance Ord SecKey where
         skp <- ContT $ withForeignPtr (secKeyFPtr sk)
         skp' <- ContT $ withForeignPtr (secKeyFPtr sk')
         lift (memCompare (castPtr skp) (castPtr skp') 32)
+instance Hashable SecKey where
+    hashWithSalt i k = hashWithSalt i $ exportSecKey k
+instance NFData SecKey where
+    rnf SecKey{..} = seq secKeyFPtr ()
 
 
 -- | Public Key with both X and Y coordinates
@@ -173,8 +185,12 @@ newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
 
 instance Show PubKeyXY where
     show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXY True pk))
-
-
+instance Read PubKeyXY where
+    readsPrec i s = case s of
+        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
+            Left e -> []
+            Right a -> maybeToList $ (,"") <$> importPubKeyXY a
+        _ -> []
 instance Eq PubKeyXY where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXYFPtr $ pk
@@ -187,6 +203,10 @@ instance Ord PubKeyXY where
         pkp' <- ContT . withForeignPtr . pubKeyXYFPtr $ pk'
         res <- lift (Prim.ecPubkeyCmp ctx pkp pkp')
         pure $ compare res 0
+instance Hashable PubKeyXY where
+    hashWithSalt i k = hashWithSalt i $ exportPubKeyXY True k
+instance NFData PubKeyXY where
+    rnf PubKeyXY{..} = seq pubKeyXYFPtr ()
 
 
 -- | Public Key with only an X coordinate.
@@ -195,8 +215,12 @@ newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
 
 instance Show PubKeyXO where
     show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXO pk))
-
-
+instance Read PubKeyXO where
+    readsPrec i s = case s of
+        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
+            Left e -> []
+            Right a -> maybeToList $ (,"") <$> importPubKeyXO a
+        _ -> []
 instance Eq PubKeyXO where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXOFPtr $ pk
@@ -209,6 +233,10 @@ instance Ord PubKeyXO where
         pkp' <- ContT . withForeignPtr . pubKeyXOFPtr $ pk'
         res <- lift (Prim.xonlyPubkeyCmp ctx pkp pkp')
         pure $ compare res 0
+instance Hashable PubKeyXO where
+    hashWithSalt i k = hashWithSalt i $ exportPubKeyXO k
+instance NFData PubKeyXO where
+    rnf PubKeyXO{..} = seq pubKeyXOFPtr ()
 
 
 -- | Structure containing information equivalent to 'SecKey' and 'PubKeyXY'
@@ -220,6 +248,8 @@ instance Eq KeyPair where
         kpp <- ContT $ withForeignPtr (keyPairFPtr kp)
         kpp' <- ContT $ withForeignPtr (keyPairFPtr kp')
         (EQ ==) <$> lift (memCompare (castPtr kpp) (castPtr kpp') 32)
+instance NFData KeyPair where
+    rnf KeyPair{..} = seq keyPairFPtr ()
 
 
 -- | Structure containing Signature (R,S) data.
@@ -233,6 +263,8 @@ instance Eq Signature where
         sigp <- ContT $ withForeignPtr (signatureFPtr sig)
         sigp' <- ContT $ withForeignPtr (signatureFPtr sig')
         (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 32)
+instance NFData Signature where
+    rnf Signature{..} = seq signatureFPtr ()
 
 
 -- | Structure containing Signature AND recovery ID
@@ -241,13 +273,13 @@ newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr ::
 
 instance Show RecoverableSignature where
     show recSig = "0x" <> (B8.unpack . encodeBase16) (exportRecoverableSignature recSig)
-
-
 instance Eq RecoverableSignature where
     rs == rs' = unsafePerformIO . evalContT $ do
         rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
         rsp' <- ContT $ withForeignPtr (recoverableSignatureFPtr rs')
         (EQ ==) <$> lift (memCompare (castPtr rsp) (castPtr rsp') 32)
+instance NFData RecoverableSignature where
+    rnf RecoverableSignature{..} = seq recoverableSignatureFPtr ()
 
 
 -- | Isomorphic to 'SecKey' but specifically used for tweaking (EC Group operations) other keys
@@ -268,6 +300,8 @@ instance Ord Tweak where
         skp <- ContT $ withForeignPtr (tweakFPtr sk)
         skp' <- ContT $ withForeignPtr (tweakFPtr sk')
         lift (memCompare (castPtr skp) (castPtr skp') 32)
+instance NFData Tweak where
+    rnf Tweak{..} = seq tweakFPtr ()
 
 
 -- | Preinitialized context for signing and verification

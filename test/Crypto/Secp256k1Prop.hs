@@ -13,6 +13,16 @@ import Data.Void
 import Hedgehog
 import Hedgehog.Gen hiding (discard, maybe)
 import Hedgehog.Range (linear, singleton)
+import Text.Read (readMaybe)
+
+
+prop_secKeyReadInvertsShow :: Property
+prop_secKeyReadInvertsShow = property $ do
+    sk <- forAll secKeyGen
+    let str = show sk
+    case readMaybe str of
+        Nothing -> failure
+        Just x -> x === sk
 
 
 prop_secKeyParseInvertsSerialize :: Property
@@ -29,6 +39,15 @@ prop_secKeySerializeInvertsParse = property $ do
     case importSecKey bs of
         Nothing -> discard
         Just sk -> exportSecKey sk === bs
+
+
+prop_pubKeyXYReadInvertsShow :: Property
+prop_pubKeyXYReadInvertsShow = property $ do
+    pk <- forAll pubKeyXYGen
+    let str = show pk
+    case readMaybe str of
+        Nothing -> failure
+        Just x -> x === pk
 
 
 prop_pubKeyXYParseInvertsSerialize :: Property
@@ -53,6 +72,15 @@ prop_pubKeyXYSerializeInvertsParse = withDiscards 200 $
         case importPubKeyXY withParity of
             Nothing -> discard
             Just pk -> exportPubKeyXY True pk === withParity
+
+
+prop_pubKeyXOReadInvertsShow :: Property
+prop_pubKeyXOReadInvertsShow = property $ do
+    pk <- forAll pubKeyXOGen
+    let str = show pk
+    case readMaybe str of
+        Nothing -> failure
+        Just x -> x === pk
 
 
 prop_pubKeyXOParseInvertsSerialize :: Property
