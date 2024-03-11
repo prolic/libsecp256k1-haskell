@@ -528,7 +528,7 @@ ecdh SecKey{..} PubKeyXY{..} = unsafePerformIO . evalContT $ do
         else lift (free outBuf) *> error "Bug: Invalid Scalar or Overflow"
 
 
--- -- | Add 'Tweak' to 'SecKey'.
+-- | Add 'Tweak' to 'SecKey'.
 secKeyTweakAdd :: SecKey -> Tweak -> Maybe SecKey
 secKeyTweakAdd SecKey{..} Tweak{..} = unsafePerformIO . evalContT $ do
     skPtr <- ContT (withForeignPtr secKeyFPtr)
