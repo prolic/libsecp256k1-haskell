@@ -159,9 +159,9 @@ instance Show SecKey where
         pure $ "0x" <> B8.unpack (BA.convertToBase BA.Base16 bs)
 instance Read SecKey where
     readsPrec i s = case s of
-        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
+        ('0' : 'x' : cs) -> case decodeBase16 $ B8.pack (Prelude.take 64 cs) of
             Left e -> []
-            Right a -> maybeToList $ (,"") <$> importSecKey a
+            Right a -> maybeToList $ (,Prelude.drop 64 cs) <$> importSecKey a
         _ -> []
 instance Eq SecKey where
     sk == sk' = unsafePerformIO . evalContT $ do
@@ -187,10 +187,19 @@ instance Show PubKeyXY where
     show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXY True pk))
 instance Read PubKeyXY where
     readsPrec i s = case s of
-        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
-            Left e -> []
-            Right a -> maybeToList $ (,"") <$> importPubKeyXY a
+        ('0' : 'x' : cs) -> maybeToList $ case cs of
+            ('0' : '2' : _) -> parseNextN 66 cs
+            ('0' : '3' : _) -> parseNextN 66 cs
+            ('0' : '4' : _) -> parseNextN 130 cs
+            _ -> Nothing
         _ -> []
+        where
+            hush x = case x of
+                Left _ -> Nothing
+                Right a -> Just a
+            parseNextN n cs =
+                let (key, rest) = Prelude.splitAt n cs
+                 in (,rest) <$> (importPubKeyXY <=< hush . decodeBase16) (B8.pack key)
 instance Eq PubKeyXY where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXYFPtr $ pk
@@ -217,9 +226,9 @@ instance Show PubKeyXO where
     show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXO pk))
 instance Read PubKeyXO where
     readsPrec i s = case s of
-        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack bytes of
+        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack (Prelude.take 64 bytes) of
             Left e -> []
-            Right a -> maybeToList $ (,"") <$> importPubKeyXO a
+            Right a -> maybeToList $ (,Prelude.drop 64 bytes) <$> importPubKeyXO a
         _ -> []
 instance Eq PubKeyXO where
     pk == pk' = unsafePerformIO . evalContT $ do
