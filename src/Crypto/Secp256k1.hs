@@ -93,6 +93,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as B8
 import Data.ByteString.Unsafe (unsafePackCStringLen, unsafePackMallocCStringLen)
+import Data.Char (isAlphaNum, isSpace)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.Hashable (Hashable (..))
@@ -152,17 +153,15 @@ newtype SecKey = SecKey {secKeyFPtr :: ForeignPtr Prim.Seckey32}
 
 
 instance Show SecKey where
-    show SecKey{..} = unsafePerformIO . evalContT $ do
-        secKeyPtr <- ContT (withForeignPtr secKeyFPtr)
-        -- avoid allocating a new bytestring because we are only reading from this pointer
-        bs <- lift (Data.ByteString.Unsafe.unsafePackCStringLen (castPtr secKeyPtr, 32))
-        pure $ "0x" <> B8.unpack (BA.convertToBase BA.Base16 bs)
+    show sk = B8.unpack $ encodeBase16 $ exportSecKey sk
 instance Read SecKey where
-    readsPrec i s = case s of
-        ('0' : 'x' : cs) -> case decodeBase16 $ B8.pack (Prelude.take 64 cs) of
-            Left e -> []
-            Right a -> maybeToList $ (,Prelude.drop 64 cs) <$> importSecKey a
-        _ -> []
+    readsPrec i cs = case decodeBase16 . B8.pack $ pre of
+        Left e -> []
+        Right a -> case importSecKey a of
+            Nothing -> []
+            Just x -> [(x, suf)]
+        where
+            (pre, suf) = Prelude.splitAt 64 (dropWhile isSpace cs)
 instance Eq SecKey where
     sk == sk' = unsafePerformIO . evalContT $ do
         skp <- ContT $ withForeignPtr (secKeyFPtr sk)
@@ -184,16 +183,15 @@ newtype PubKeyXY = PubKeyXY {pubKeyXYFPtr :: ForeignPtr Prim.Pubkey64}
 
 
 instance Show PubKeyXY where
-    show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXY True pk))
+    show pk = B8.unpack (encodeBase16 (exportPubKeyXY True pk))
 instance Read PubKeyXY where
-    readsPrec i s = case s of
-        ('0' : 'x' : cs) -> maybeToList $ case cs of
-            ('0' : '2' : _) -> parseNextN 66 cs
-            ('0' : '3' : _) -> parseNextN 66 cs
-            ('0' : '4' : _) -> parseNextN 130 cs
-            _ -> Nothing
-        _ -> []
+    readsPrec i cs = maybeToList $ case trimmed of
+        ('0' : '2' : _) -> parseNextN 66 trimmed
+        ('0' : '3' : _) -> parseNextN 66 trimmed
+        ('0' : '4' : _) -> parseNextN 130 trimmed
+        _ -> Nothing
         where
+            trimmed = dropWhile isSpace cs
             hush x = case x of
                 Left _ -> Nothing
                 Right a -> Just a
@@ -223,13 +221,14 @@ newtype PubKeyXO = PubKeyXO {pubKeyXOFPtr :: ForeignPtr Prim.XonlyPubkey64}
 
 
 instance Show PubKeyXO where
-    show pk = "0x" <> B8.unpack (BA.convertToBase BA.Base16 (exportPubKeyXO pk))
+    show pk = B8.unpack (encodeBase16 (exportPubKeyXO pk))
 instance Read PubKeyXO where
-    readsPrec i s = case s of
-        ('0' : 'x' : bytes) -> case decodeBase16 $ B8.pack (Prelude.take 64 bytes) of
-            Left e -> []
-            Right a -> maybeToList $ (,Prelude.drop 64 bytes) <$> importPubKeyXO a
-        _ -> []
+    readsPrec i s = case decodeBase16 . B8.pack $ pre of
+        Left e -> error s
+        Right a -> maybeToList $ (,suf) <$> importPubKeyXO a
+        where
+            trimmed = dropWhile isSpace s
+            (pre, suf) = Prelude.splitAt 64 trimmed
 instance Eq PubKeyXO where
     pk == pk' = unsafePerformIO . evalContT $ do
         pkp <- ContT . withForeignPtr . pubKeyXOFPtr $ pk
@@ -266,7 +265,14 @@ newtype Signature = Signature {signatureFPtr :: ForeignPtr Prim.Sig64}
 
 
 instance Show Signature where
-    show sig = "0x" <> (B8.unpack . encodeBase16) (exportSignatureCompact sig)
+    show sig = (B8.unpack . encodeBase16) (exportSignatureCompact sig)
+instance Read Signature where
+    readsPrec i cs = case decodeBase16 $ B8.pack token of
+        Left e -> []
+        Right a -> maybeToList $ (,rest) <$> importSignature a
+        where
+            trimmed = dropWhile isSpace cs
+            (token, rest) = span isAlphaNum trimmed
 instance Eq Signature where
     sig == sig' = unsafePerformIO . evalContT $ do
         sigp <- ContT $ withForeignPtr (signatureFPtr sig)
@@ -281,7 +287,14 @@ newtype RecoverableSignature = RecoverableSignature {recoverableSignatureFPtr ::
 
 
 instance Show RecoverableSignature where
-    show recSig = "0x" <> (B8.unpack . encodeBase16) (exportRecoverableSignature recSig)
+    show recSig = (B8.unpack . encodeBase16) (exportRecoverableSignature recSig)
+instance Read RecoverableSignature where
+    readsPrec i cs = case decodeBase16 $ B8.pack token of
+        Left e -> error . show $ trimmed
+        Right a -> maybeToList $ (,rest) <$> importRecoverableSignature a
+        where
+            trimmed = dropWhile isSpace cs
+            (token, rest) = span isAlphaNum trimmed
 instance Eq RecoverableSignature where
     rs == rs' = unsafePerformIO . evalContT $ do
         rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
@@ -297,6 +310,14 @@ newtype Tweak = Tweak {tweakFPtr :: ForeignPtr Prim.Tweak32}
 
 instance Show Tweak where
     show (Tweak fptr) = show (SecKey $ castForeignPtr fptr)
+instance Read Tweak where
+    readsPrec i cs = case decodeBase16 . B8.pack $ pre of
+        Left e -> []
+        Right a -> case importTweak a of
+            Nothing -> []
+            Just x -> [(x, suf)]
+        where
+            (pre, suf) = Prelude.splitAt 64 (dropWhile isSpace cs)
 
 
 instance Eq Tweak where

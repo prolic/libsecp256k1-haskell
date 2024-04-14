@@ -3,7 +3,9 @@
 
 module Crypto.Secp256k1Prop where
 
+import Control.Applicative (Applicative (liftA2), empty)
 import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
 import Crypto.Secp256k1
 import Crypto.Secp256k1.Gen
 import Data.ByteArray.Sized (sizedByteArray)
@@ -11,7 +13,7 @@ import Data.ByteString qualified as BS
 import Data.Maybe (fromJust, isJust)
 import Data.Void
 import Hedgehog
-import Hedgehog.Gen hiding (discard, maybe)
+import Hedgehog.Gen hiding (discard, maybe, prune)
 import Hedgehog.Range (linear, singleton)
 import Text.Read (readMaybe)
 
@@ -99,12 +101,22 @@ prop_pubKeyXOSerializeInvertsParse = withDiscards 200 . property $ do
         Just pk -> exportPubKeyXO pk === bs
 
 
+prop_signatureReadInvertsShow :: Property
+prop_signatureReadInvertsShow = property $ do
+    sk <- forAll secKeyGen
+    bs <- forAll (bytes $ singleton 32)
+    sig <- maybe failure pure $ ecdsaSign sk bs
+    case readMaybe (show sig) of
+        Nothing -> failure
+        Just x -> sig === x
+
+
 prop_signatureParseInvertsSerialize :: Property
 prop_signatureParseInvertsSerialize = property $ do
     sk <- forAll secKeyGen
     bs <- forAll $ bytes (singleton 32)
 
-    sig <- maybe failure pure (ecdsaSign sk bs)
+    sig <- maybe failure pure $ ecdsaSign sk bs
 
     exportDer <- forAll $ element [False, True]
     let export = if exportDer then exportSignatureDer else exportSignatureCompact
@@ -114,6 +126,17 @@ prop_signatureParseInvertsSerialize = property $ do
     case importSignature serialized of
         Nothing -> failure
         Just x -> x === sig
+
+
+prop_recoverableSignatureReadInvertsShow :: Property
+prop_recoverableSignatureReadInvertsShow = property $ do
+    sk <- forAll secKeyGen
+    bs <- forAll $ bytes (singleton 32)
+    recSig <- maybe failure pure $ ecdsaSignRecoverable sk bs
+    let export = exportRecoverableSignature recSig
+    case importRecoverableSignature export of
+        Nothing -> failure
+        Just x -> x === recSig
 
 
 prop_recoverableSignatureParseInvertsSerialize :: Property
@@ -141,7 +164,8 @@ prop_ecdsaSignaturesProducedAreValid :: Property
 prop_ecdsaSignaturesProducedAreValid = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
-    case ecdsaSign sk msg of
+    let sig = ecdsaSign sk msg
+    case sig of
         Nothing -> failure
         Just sig -> assert $ ecdsaVerify msg (derivePubKey sk) sig
 
@@ -159,7 +183,7 @@ prop_ecdsaSignatureValidityPreservedOverSerialization :: Property
 prop_ecdsaSignatureValidityPreservedOverSerialization = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
-    let sig = fromJust $ ecdsaSign sk msg
+    sig <- maybe failure pure $ ecdsaSign sk msg
     useDer <- forAll enumBounded
     let export =
             if useDer
@@ -260,7 +284,8 @@ prop_ecdsaSignaturesUnforgeable = property $ do
     pk <- forAll pubKeyXYGen
     when (pk == derivePubKey sk) discard
     msg <- forAll $ bytes (singleton 32)
-    case ecdsaSign sk msg of
+    let sig = ecdsaSign sk msg
+    case sig of
         Nothing -> failure
         Just sig -> assert . not $ ecdsaVerify msg pk sig
 
@@ -274,6 +299,59 @@ prop_schnorrSignaturesUnforgeable = property $ do
     case schnorrSign kp msg of
         Nothing -> failure
         Just sig -> assert . not $ schnorrVerify pk msg sig
+
+
+newtype Wrapped a = Wrapped {secKey :: a} deriving (Show, Read, Eq)
+
+
+derivedCompositeReadShowInvertTemplate :: (Eq a, Read a, Show a) => Gen a -> Property
+derivedCompositeReadShowInvertTemplate gen = property $ do
+    a <- forAll gen
+    annotateShow a
+    annotateShow (length $ show a)
+    annotateShow (Wrapped a)
+    case readMaybe (show (Wrapped a)) of
+        Nothing -> failure
+        Just x -> x === Wrapped a
+
+
+prop_derivedCompositeReadShowInvertSecKey :: Property
+prop_derivedCompositeReadShowInvertSecKey = derivedCompositeReadShowInvertTemplate secKeyGen
+
+
+prop_derivedCompositeReadShowInvertPubKeyXY :: Property
+prop_derivedCompositeReadShowInvertPubKeyXY = derivedCompositeReadShowInvertTemplate pubKeyXYGen
+
+
+prop_derivedCompositeReadShowInvertPubKeyXO :: Property
+prop_derivedCompositeReadShowInvertPubKeyXO = derivedCompositeReadShowInvertTemplate pubKeyXOGen
+
+
+prop_derivedCompositeReadShowInvertTweak :: Property
+prop_derivedCompositeReadShowInvertTweak = derivedCompositeReadShowInvertTemplate tweakGen
+
+
+prop_derivedCompositeReadShowInvertSignature :: Property
+prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTemplate $ choice [ecdsa, schnorr]
+    where
+        base = liftA2 (,) secKeyGen (bytes (singleton 32))
+        ecdsa = base >>= maybe empty pure . uncurry ecdsaSign
+        schnorr = base >>= maybe empty pure . uncurry (schnorrSign . keyPairCreate)
+
+
+prop_derivedCompositeReadShowInvertRecoverableSignature :: Property
+prop_derivedCompositeReadShowInvertRecoverableSignature = derivedCompositeReadShowInvertTemplate $ do
+    sk <- secKeyGen
+    msg <- bytes (singleton 32)
+    maybe empty pure $ ecdsaSignRecoverable sk msg
+
+
+prop_eqImportImpliesEqSecKey :: Property
+prop_eqImportImpliesEqSecKey = property $ do
+    bs <- forAll $ bytes $ singleton 32
+    k0 <- maybe discard pure $ importSecKey bs
+    k1 <- maybe discard pure $ importSecKey bs
+    k0 === k1
 
 
 tests :: Group
