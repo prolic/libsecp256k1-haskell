@@ -854,7 +854,3 @@ pubKeyXOTweakAddCheck PubKeyXO{pubKeyXOFPtr = tweakedFPtr} parity PubKeyXO{pubKe
         tweakPtr <- ContT (withForeignPtr tweakFPtr)
         let parityInt = if parity then 1 else 0
         lift $ isSuccess <$> Prim.xonlyPubkeyTweakAddCheck ctx tweakedPtr parityInt origPtr tweakPtr
-
-
-foreign import ccall "wrapper"
-    mkNonceFunHardened :: Prim.NonceFunHardened a -> IO (FunPtr (Prim.NonceFunHardened a))
