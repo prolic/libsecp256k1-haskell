@@ -123,7 +123,8 @@ prop_signatureParseInvertsSerialize = property $ do
     let serialized = export sig
     annotateShow serialized
     annotateShow (BS.length serialized)
-    case importSignature serialized of
+    let parse = if exportDer then importSignatureDer else importSignatureCompact
+    case parse serialized of
         Nothing -> failure
         Just x -> x === sig
 
@@ -185,12 +186,12 @@ prop_ecdsaSignatureValidityPreservedOverSerialization = property $ do
     msg <- forAll $ bytes (singleton 32)
     sig <- maybe failure pure $ ecdsaSign sk msg
     useDer <- forAll enumBounded
-    let export =
+    let (serialize, parse) =
             if useDer
-                then exportSignatureDer
-                else exportSignatureCompact
-    let serialized = export sig
-    let parsed = fromJust (importSignature serialized)
+                then (exportSignatureDer, importSignatureDer)
+                else (exportSignatureCompact, importSignatureCompact)
+    let serialized = serialize sig
+    let parsed = fromJust (parse serialized)
     assert $ ecdsaVerify msg (derivePubKey sk) parsed
 
 

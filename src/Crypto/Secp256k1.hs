@@ -35,7 +35,8 @@ module Crypto.Secp256k1 (
     exportPubKeyXY,
     importPubKeyXO,
     exportPubKeyXO,
-    importSignature,
+    importSignatureCompact,
+    importSignatureDer,
     exportSignatureCompact,
     exportSignatureDer,
     importRecoverableSignature,
@@ -80,6 +81,7 @@ module Crypto.Secp256k1 (
     ecdh,
 ) where
 
+import Control.Applicative (Alternative (..))
 import Control.DeepSeq (NFData (..))
 import Control.Monad (replicateM, unless, (<=<))
 import Control.Monad.Trans.Class (lift)
@@ -269,7 +271,7 @@ instance Show Signature where
 instance Read Signature where
     readsPrec i cs = case decodeBase16 $ B8.pack token of
         Left e -> []
-        Right a -> maybeToList $ (,rest) <$> importSignature a
+        Right a -> maybeToList $ (,rest) <$> (importSignatureCompact a <|> importSignatureDer a)
         where
             trimmed = dropWhile isSpace cs
             (token, rest) = span isAlphaNum trimmed
@@ -414,22 +416,31 @@ exportPubKeyXO (PubKeyXO pkFPtr) = unsafePerformIO $ do
     unsafePackByteString (outBuf, 32)
 
 
--- | Parses 'Signature' from DER (71 | 72 | 73 bytes) or Compact (64 bytes) representations.
-importSignature :: ByteString -> Maybe Signature
-importSignature bs = unsafePerformIO $
+-- | Parses 'Signature' from Compact (64 bytes) representation.
+importSignatureCompact :: ByteString -> Maybe Signature
+importSignatureCompact bs = unsafePerformIO $
     unsafeUseByteString bs $ \(inBuf, len) -> do
         outBuf <- mallocBytes 64
         ret <-
-            if
+            if len == 64
                 -- compact
-                | len == 64 -> Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
-                -- der
-                | len >= 69 && len <= 73 -> Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
+                then Prim.ecdsaSignatureParseCompact ctx outBuf inBuf
                 -- invalid
-                | otherwise -> pure 0
+                else pure 0
         if isSuccess ret
             then Just . Signature <$> newForeignPtr finalizerFree outBuf
             else free outBuf $> Nothing
+
+
+-- | Parses 'Signature' from DER representation.
+importSignatureDer :: ByteString -> Maybe Signature
+importSignatureDer bs = unsafePerformIO $
+    unsafeUseByteString bs $ \(inBuf, len) -> do
+        outBuf <- mallocBytes 64
+        ret <- Prim.ecdsaSignatureParseDer ctx outBuf inBuf len
+        if isSuccess ret
+            then Just . Signature <$> newForeignPtr finalizerFree outBuf
+            else pure Nothing
 
 
 -- | Serializes 'Signature' to Compact (64 byte) representation

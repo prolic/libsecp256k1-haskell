@@ -3,6 +3,7 @@ module Crypto.Secp256k1Spec (spec) where
 import Control.Monad.Par qualified as P
 import Crypto.Secp256k1
 import Crypto.Secp256k1.Internal
+import Data.ByteArray.Encoding (Base (Base16), convertFromBase)
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as B8
 import Data.Either (fromRight)
@@ -69,7 +70,7 @@ parSerializePubKeyTest ps = P.runPar $ do
 
 serializeSigTest :: (BS.ByteString, SecKey) -> Bool
 serializeSigTest (fm, fk) =
-    (fg >>= importSignature . exportSignatureDer) == fg && isJust fg
+    (fg >>= importSignatureDer . exportSignatureDer) == fg && isJust fg
     where
         fg = ecdsaSign fk fm
 
@@ -82,7 +83,7 @@ parSerializeSigTest ms = P.runPar $ do
 
 serializeCompactSigTest :: (BS.ByteString, SecKey) -> Bool
 serializeCompactSigTest (fm, fk) =
-    (fg >>= importSignature . exportSignatureCompact) == fg && isJust fg
+    (fg >>= importSignatureCompact . exportSignatureCompact) == fg && isJust fg
     where
         fg = ecdsaSign fk fm
 
