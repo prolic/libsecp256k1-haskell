@@ -257,7 +257,7 @@ instance Eq KeyPair where
     kp == kp' = unsafePerformIO . evalContT $ do
         kpp <- ContT $ withForeignPtr (keyPairFPtr kp)
         kpp' <- ContT $ withForeignPtr (keyPairFPtr kp')
-        (EQ ==) <$> lift (memCompare (castPtr kpp) (castPtr kpp') 32)
+        (EQ ==) <$> lift (memCompare (castPtr kpp) (castPtr kpp') 96)
 instance NFData KeyPair where
     rnf KeyPair{..} = seq keyPairFPtr ()
 
@@ -279,7 +279,7 @@ instance Eq Signature where
     sig == sig' = unsafePerformIO . evalContT $ do
         sigp <- ContT $ withForeignPtr (signatureFPtr sig)
         sigp' <- ContT $ withForeignPtr (signatureFPtr sig')
-        (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 32)
+        (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 64)
 instance NFData Signature where
     rnf Signature{..} = seq signatureFPtr ()
 
@@ -301,7 +301,7 @@ instance Eq RecoverableSignature where
     rs == rs' = unsafePerformIO . evalContT $ do
         rsp <- ContT $ withForeignPtr (recoverableSignatureFPtr rs)
         rsp' <- ContT $ withForeignPtr (recoverableSignatureFPtr rs')
-        (EQ ==) <$> lift (memCompare (castPtr rsp) (castPtr rsp') 32)
+        (EQ ==) <$> lift (memCompare (castPtr rsp) (castPtr rsp') 65)
 instance NFData RecoverableSignature where
     rnf RecoverableSignature{..} = seq recoverableSignatureFPtr ()
 
