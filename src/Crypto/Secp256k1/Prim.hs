@@ -1117,7 +1117,7 @@ foreign import capi safe "secp256k1_schnorrsig.h value secp256k1_nonce_function_
 --  'taggedSha256' and then sign the hash. Tagged hashing allows
 --  providing an context-specific tag for domain separation. This prevents
 --  signatures from being valid in multiple contexts by accident.
-foreign import capi safe "secp256k1_schnorrsig.h secp256k1_schnorrsig_sign"
+foreign import capi safe "secp256k1_schnorrsig.h secp256k1_schnorrsig_sign32"
     schnorrsigSign ::
         -- | pointer to a context object, initialized for signing (cannot be NULL)
         Ctx ->
@@ -1364,7 +1364,7 @@ foreign import capi safe "secp256k1.h secp256k1_scratch_space_destroy"
 
 -- * Deprecated
 {-# DEPRECATED ecPrivkeyNegate "use ecSeckeyNegate instead" #-}
-foreign import capi safe "secp256k1.h secp256k1_ec_privkey_negate"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_negate"
     ecPrivkeyNegate ::
         Ctx ->
         Ptr Tweak32 ->
@@ -1372,7 +1372,7 @@ foreign import capi safe "secp256k1.h secp256k1_ec_privkey_negate"
 
 
 {-# DEPRECATED ecPrivkeyTweakAdd "use ecSeckeyTweakAdd instead" #-}
-foreign import capi safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_tweak_add"
     ecPrivkeyTweakAdd ::
         Ctx ->
         Ptr Seckey32 ->
@@ -1381,7 +1381,7 @@ foreign import capi safe "secp256k1.h secp256k1_ec_privkey_tweak_add"
 
 
 {-# DEPRECATED ecPrivkeyTweakMul "use ecSeckeyTweakMul instead" #-}
-foreign import capi safe "secp256k1.h secp256k1_ec_privkey_tweak_mul"
+foreign import capi safe "secp256k1.h secp256k1_ec_seckey_tweak_mul"
     ecPrivkeyTweakMul ::
         Ctx ->
         Ptr Seckey32 ->
