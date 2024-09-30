@@ -333,11 +333,21 @@ prop_derivedCompositeReadShowInvertTweak = derivedCompositeReadShowInvertTemplat
 
 
 prop_derivedCompositeReadShowInvertSignature :: Property
-prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTemplate $ choice [ecdsa, schnorr]
+prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTemplate ecdsaSignGen
     where
-        base = liftA2 (,) secKeyGen (bytes (singleton 32))
-        ecdsa = base >>= maybe empty pure . uncurry ecdsaSign
-        schnorr = base >>= maybe empty pure . uncurry (schnorrSign . keyPairCreate)
+        ecdsaSignGen = do
+            sk <- secKeyGen
+            msg <- bytes (singleton 32)
+            maybe empty pure $ ecdsaSign sk msg
+
+
+prop_derivedCompositeReadShowInvertSchnorrSignature :: Property
+prop_derivedCompositeReadShowInvertSchnorrSignature = derivedCompositeReadShowInvertTemplate schnorrSignGen
+    where
+        schnorrSignGen = do
+            sk <- secKeyGen
+            msg <- bytes (singleton 32)
+            maybe empty pure $ schnorrSign (keyPairCreate sk) msg
 
 
 prop_derivedCompositeReadShowInvertRecoverableSignature :: Property
@@ -353,6 +363,41 @@ prop_eqImportImpliesEqSecKey = property $ do
     k0 <- maybe discard pure $ importSecKey bs
     k1 <- maybe discard pure $ importSecKey bs
     k0 === k1
+
+
+prop_schnorrSignatureParseInvertsSerialize :: Property
+prop_schnorrSignatureParseInvertsSerialize = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- maybe failure pure $ schnorrSign kp msg
+    let serialized = exportSchnorrSignature sig
+    annotateShow serialized
+    annotateShow (BS.length serialized)
+    let parsed = importSchnorrSignature serialized
+    parsed === Just sig
+
+
+prop_schnorrSignatureValidityPreservedOverSerialization :: Property
+prop_schnorrSignatureValidityPreservedOverSerialization = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- maybe failure pure $ schnorrSign kp msg
+    let serialized = exportSchnorrSignature sig
+    let parsed = importSchnorrSignature serialized
+    parsed === Just sig
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+
+
+prop_schnorrSignatureDeterministic :: Property
+prop_schnorrSignatureDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig1 <- maybe failure pure $ schnorrSign kp msg
+    sig2 <- maybe failure pure $ schnorrSign kp msg
+    sig1 === sig2
 
 
 tests :: Group
