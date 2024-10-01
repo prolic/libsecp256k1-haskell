@@ -76,6 +76,8 @@ module Crypto.Secp256k1 (
 
     -- * Schnorr Operations
     schnorrSign,
+    schnorrSignDeterministic,
+    schnorrSignNondeterministic,
     schnorrVerify,
 
     -- * Other
@@ -143,7 +145,7 @@ import Foreign.Storable (Storable (..))
 import GHC.Generics (Generic)
 import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
-import System.Random (newStdGen, randoms)
+import System.Random (StdGen, newStdGen, randoms, randomIO)
 import Text.Read (
     Lexeme (String),
     lexP,
@@ -743,23 +745,38 @@ keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free keyPairOut $> Nothing
 
 
--- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get a @Just@ out of this
--- function
-schnorrSign :: KeyPair -> ByteString -> IO (Maybe SchnorrSignature)
-schnorrSign KeyPair{..} bs
-    | BS.length bs /= 32 = pure Nothing
-    | otherwise = evalContT $ do
+-- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get 
+-- a @Just@ out of this function. Optionally takes a 'StdGen' for deterministic signing.
+schnorrSign :: Maybe StdGen -> KeyPair -> ByteString -> Maybe SchnorrSignature
+schnorrSign mGen KeyPair{..} bs
+    | BS.length bs /= 32 = Nothing
+    | otherwise = unsafePerformIO . evalContT $ do
         (msgHashPtr, _) <- ContT (unsafeUseByteString bs)
         keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
         lift $ do
             sigBuf <- mallocBytes 64
-            gen <- newStdGen
-            let randomBytes = BS.pack $ Prelude.take 32 $ randoms gen
-            BS.useAsCString randomBytes $ \randomPtr -> do
-                ret <- Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr (castPtr randomPtr)
-                if isSuccess ret
-                    then Just . SchnorrSignature <$> newForeignPtr finalizerFree sigBuf
-                    else free sigBuf $> Nothing
+            ret <- case mGen of
+                Just gen -> do
+                    let randomBytes = BS.pack $ Prelude.take 32 $ randoms gen
+                    BS.useAsCStringLen randomBytes $ \(ptr, _) ->
+                        Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr (castPtr ptr)
+                Nothing ->
+                    Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr nullPtr
+            if isSuccess ret
+                then Just . SchnorrSignature <$> newForeignPtr finalizerFree sigBuf
+                else do
+                    free sigBuf
+                    return Nothing
+
+
+-- | Compute a deterministic schnorr signature using a 'KeyPair'.
+schnorrSignDeterministic :: KeyPair -> ByteString -> Maybe SchnorrSignature
+schnorrSignDeterministic = schnorrSign Nothing
+
+
+-- | Compute a non-deterministic schnorr signature using a 'KeyPair'.
+schnorrSignNondeterministic :: KeyPair -> ByteString -> IO (Maybe SchnorrSignature)
+schnorrSignNondeterministic kp bs = newStdGen >>= \gen -> pure $ schnorrSign (Just gen) kp bs
 
 
 -- | Verify the authenticity of a schnorr signature. @True@ means the 'Signature' is correct.

@@ -17,6 +17,7 @@ import Hedgehog
 import Hedgehog.Gen hiding (discard, maybe, prune)
 import Hedgehog.Range (linear, singleton)
 import Text.Read (readMaybe)
+import System.Random (StdGen, mkStdGen)
 
 
 prop_secKeyReadInvertsShow :: Property
@@ -261,10 +262,17 @@ prop_schnorrSignaturesProducedAreValid = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig <- liftIO $ schnorrSign kp msg
-    case sig of
-        Nothing -> failure
-        Just s -> assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg s
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+
+
+prop_schnorrSignaturesProducedAreValidNonDeterministic :: Property
+prop_schnorrSignaturesProducedAreValidNonDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
 
 
 prop_pubKeyCombineTweakIdentity :: Property
@@ -299,10 +307,18 @@ prop_schnorrSignaturesUnforgeable = property $ do
     let kp = keyPairCreate sk
     pk <- forAll pubKeyXOGen
     msg <- forAll $ bytes (singleton 32)
-    sig <- liftIO $ schnorrSign kp msg
-    case sig of
-        Nothing -> failure
-        Just s -> assert . not $ schnorrVerify pk msg s
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    assert . not $ schnorrVerify pk msg sig
+
+
+prop_schnorrSignaturesUnforgeableNonDeterministic :: Property
+prop_schnorrSignaturesUnforgeableNonDeterministic = property $ do
+    sk <- forAll secKeyGen
+    let kp = keyPairCreate sk
+    pk <- forAll pubKeyXOGen
+    msg <- forAll $ bytes (singleton 32)
+    sig <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    assert . not $ schnorrVerify pk msg sig
 
 
 newtype Wrapped a = Wrapped {secKey :: a} deriving (Show, Read, Eq)
@@ -349,8 +365,7 @@ prop_derivedCompositeReadShowInvertSchnorrSignature = property $ do
     sk <- forAll secKeyGen
     let kp = keyPairCreate sk
     msg <- forAll $ bytes (singleton 32)
-    mSig <- liftIO $ schnorrSign kp msg
-    sig <- maybe failure pure mSig
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
     let a = sig
     annotateShow a
     annotateShow (length $ show a)
@@ -380,7 +395,7 @@ prop_schnorrSignatureParseInvertsSerialize = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
     let serialized = exportSchnorrSignature sig
     annotateShow serialized
     annotateShow (BS.length serialized)
@@ -393,11 +408,21 @@ prop_schnorrSignatureValidityPreservedOverSerialization = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
     let serialized = exportSchnorrSignature sig
     let parsed = importSchnorrSignature serialized
     parsed === Just sig
     assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+
+
+prop_schnorrSignatureDeterministic :: Property
+prop_schnorrSignatureDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig1 <- maybe failure pure $ schnorrSignDeterministic kp msg
+    sig2 <- maybe failure pure $ schnorrSignDeterministic kp msg
+    sig1 === sig2
 
 
 prop_schnorrSignatureNonDeterministic :: Property
@@ -405,9 +430,20 @@ prop_schnorrSignatureNonDeterministic = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig1 <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
-    sig2 <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
+    sig1 <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    sig2 <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
     sig1 /== sig2
+
+
+prop_schnorrSignWithStdGen :: Property
+prop_schnorrSignWithStdGen = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    stdGen <- forAll $ mkStdGen <$> integral (linear 0 maxBound)
+    sig1 <- maybe failure pure $ schnorrSign (Just stdGen) kp msg
+    sig2 <- maybe failure pure $ schnorrSign (Just stdGen) kp msg
+    sig1 === sig2
 
 
 tests :: Group
