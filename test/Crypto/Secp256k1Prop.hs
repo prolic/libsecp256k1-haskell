@@ -5,6 +5,7 @@ module Crypto.Secp256k1Prop where
 
 import Control.Applicative (Applicative (liftA2), empty)
 import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 import Crypto.Secp256k1
 import Crypto.Secp256k1.Gen
@@ -260,9 +261,10 @@ prop_schnorrSignaturesProducedAreValid = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    case schnorrSign kp msg of
+    sig <- liftIO $ schnorrSign kp msg
+    case sig of
         Nothing -> failure
-        Just sig -> assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+        Just s -> assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg s
 
 
 prop_pubKeyCombineTweakIdentity :: Property
@@ -297,9 +299,10 @@ prop_schnorrSignaturesUnforgeable = property $ do
     let kp = keyPairCreate sk
     pk <- forAll pubKeyXOGen
     msg <- forAll $ bytes (singleton 32)
-    case schnorrSign kp msg of
+    sig <- liftIO $ schnorrSign kp msg
+    case sig of
         Nothing -> failure
-        Just sig -> assert . not $ schnorrVerify pk msg sig
+        Just s -> assert . not $ schnorrVerify pk msg s
 
 
 newtype Wrapped a = Wrapped {secKey :: a} deriving (Show, Read, Eq)
@@ -342,12 +345,19 @@ prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTem
 
 
 prop_derivedCompositeReadShowInvertSchnorrSignature :: Property
-prop_derivedCompositeReadShowInvertSchnorrSignature = derivedCompositeReadShowInvertTemplate schnorrSignGen
-    where
-        schnorrSignGen = do
-            sk <- secKeyGen
-            msg <- bytes (singleton 32)
-            maybe empty pure $ schnorrSign (keyPairCreate sk) msg
+prop_derivedCompositeReadShowInvertSchnorrSignature = property $ do
+    sk <- forAll secKeyGen
+    let kp = keyPairCreate sk
+    msg <- forAll $ bytes (singleton 32)
+    mSig <- liftIO $ schnorrSign kp msg
+    sig <- maybe failure pure mSig
+    let a = sig
+    annotateShow a
+    annotateShow (length $ show a)
+    annotateShow (Wrapped a)
+    case readMaybe (show (Wrapped a)) of
+        Nothing -> failure
+        Just x  -> x === Wrapped a
 
 
 prop_derivedCompositeReadShowInvertRecoverableSignature :: Property
@@ -370,7 +380,7 @@ prop_schnorrSignatureParseInvertsSerialize = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig <- maybe failure pure $ schnorrSign kp msg
+    sig <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
     let serialized = exportSchnorrSignature sig
     annotateShow serialized
     annotateShow (BS.length serialized)
@@ -383,21 +393,21 @@ prop_schnorrSignatureValidityPreservedOverSerialization = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig <- maybe failure pure $ schnorrSign kp msg
+    sig <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
     let serialized = exportSchnorrSignature sig
     let parsed = importSchnorrSignature serialized
     parsed === Just sig
     assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
 
 
-prop_schnorrSignatureDeterministic :: Property
-prop_schnorrSignatureDeterministic = property $ do
+prop_schnorrSignatureNonDeterministic :: Property
+prop_schnorrSignatureNonDeterministic = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    sig1 <- maybe failure pure $ schnorrSign kp msg
-    sig2 <- maybe failure pure $ schnorrSign kp msg
-    sig1 === sig2
+    sig1 <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
+    sig2 <- liftIO $ maybe (error "schnorrSign failed") pure =<< schnorrSign kp msg
+    sig1 /== sig2
 
 
 tests :: Group

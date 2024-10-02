@@ -143,6 +143,7 @@ import Foreign.Storable (Storable (..))
 import GHC.Generics (Generic)
 import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
+import System.Random (newStdGen, randoms)
 import Text.Read (
     Lexeme (String),
     lexP,
@@ -744,19 +745,21 @@ keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
 
 -- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get a @Just@ out of this
 -- function
-schnorrSign :: KeyPair -> ByteString -> Maybe SchnorrSignature
+schnorrSign :: KeyPair -> ByteString -> IO (Maybe SchnorrSignature)
 schnorrSign KeyPair{..} bs
-    | BS.length bs /= 32 = Nothing
-    | otherwise = unsafePerformIO . evalContT $ do
+    | BS.length bs /= 32 = pure Nothing
+    | otherwise = evalContT $ do
         (msgHashPtr, _) <- ContT (unsafeUseByteString bs)
         keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
         lift $ do
             sigBuf <- mallocBytes 64
-            -- TODO: provide randomness here instead of supplying a null pointer
-            ret <- Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr nullPtr
-            if isSuccess ret
-                then Just . SchnorrSignature <$> newForeignPtr finalizerFree sigBuf
-                else free sigBuf $> Nothing
+            gen <- newStdGen
+            let randomBytes = BS.pack $ Prelude.take 32 $ randoms gen
+            BS.useAsCString randomBytes $ \randomPtr -> do
+                ret <- Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr (castPtr randomPtr)
+                if isSuccess ret
+                    then Just . SchnorrSignature <$> newForeignPtr finalizerFree sigBuf
+                    else free sigBuf $> Nothing
 
 
 -- | Verify the authenticity of a schnorr signature. @True@ means the 'Signature' is correct.
