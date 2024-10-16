@@ -5,6 +5,7 @@ module Crypto.Secp256k1Prop where
 
 import Control.Applicative (Applicative (liftA2), empty)
 import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Class (lift)
 import Crypto.Secp256k1
 import Crypto.Secp256k1.Gen
@@ -16,6 +17,7 @@ import Hedgehog
 import Hedgehog.Gen hiding (discard, maybe, prune)
 import Hedgehog.Range (linear, singleton)
 import Text.Read (readMaybe)
+import System.Random (StdGen, mkStdGen)
 
 
 prop_secKeyReadInvertsShow :: Property
@@ -260,9 +262,17 @@ prop_schnorrSignaturesProducedAreValid = property $ do
     sk <- forAll secKeyGen
     msg <- forAll $ bytes (singleton 32)
     let kp = keyPairCreate sk
-    case schnorrSign kp msg of
-        Nothing -> failure
-        Just sig -> assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+
+
+prop_schnorrSignaturesProducedAreValidNonDeterministic :: Property
+prop_schnorrSignaturesProducedAreValidNonDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
 
 
 prop_pubKeyCombineTweakIdentity :: Property
@@ -297,9 +307,18 @@ prop_schnorrSignaturesUnforgeable = property $ do
     let kp = keyPairCreate sk
     pk <- forAll pubKeyXOGen
     msg <- forAll $ bytes (singleton 32)
-    case schnorrSign kp msg of
-        Nothing -> failure
-        Just sig -> assert . not $ schnorrVerify pk msg sig
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    assert . not $ schnorrVerify pk msg sig
+
+
+prop_schnorrSignaturesUnforgeableNonDeterministic :: Property
+prop_schnorrSignaturesUnforgeableNonDeterministic = property $ do
+    sk <- forAll secKeyGen
+    let kp = keyPairCreate sk
+    pk <- forAll pubKeyXOGen
+    msg <- forAll $ bytes (singleton 32)
+    sig <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    assert . not $ schnorrVerify pk msg sig
 
 
 newtype Wrapped a = Wrapped {secKey :: a} deriving (Show, Read, Eq)
@@ -333,11 +352,27 @@ prop_derivedCompositeReadShowInvertTweak = derivedCompositeReadShowInvertTemplat
 
 
 prop_derivedCompositeReadShowInvertSignature :: Property
-prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTemplate $ choice [ecdsa, schnorr]
+prop_derivedCompositeReadShowInvertSignature = derivedCompositeReadShowInvertTemplate ecdsaSignGen
     where
-        base = liftA2 (,) secKeyGen (bytes (singleton 32))
-        ecdsa = base >>= maybe empty pure . uncurry ecdsaSign
-        schnorr = base >>= maybe empty pure . uncurry (schnorrSign . keyPairCreate)
+        ecdsaSignGen = do
+            sk <- secKeyGen
+            msg <- bytes (singleton 32)
+            maybe empty pure $ ecdsaSign sk msg
+
+
+prop_derivedCompositeReadShowInvertSchnorrSignature :: Property
+prop_derivedCompositeReadShowInvertSchnorrSignature = property $ do
+    sk <- forAll secKeyGen
+    let kp = keyPairCreate sk
+    msg <- forAll $ bytes (singleton 32)
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    let a = sig
+    annotateShow a
+    annotateShow (length $ show a)
+    annotateShow (Wrapped a)
+    case readMaybe (show (Wrapped a)) of
+        Nothing -> failure
+        Just x  -> x === Wrapped a
 
 
 prop_derivedCompositeReadShowInvertRecoverableSignature :: Property
@@ -353,6 +388,62 @@ prop_eqImportImpliesEqSecKey = property $ do
     k0 <- maybe discard pure $ importSecKey bs
     k1 <- maybe discard pure $ importSecKey bs
     k0 === k1
+
+
+prop_schnorrSignatureParseInvertsSerialize :: Property
+prop_schnorrSignatureParseInvertsSerialize = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    let serialized = exportSchnorrSignature sig
+    annotateShow serialized
+    annotateShow (BS.length serialized)
+    let parsed = importSchnorrSignature serialized
+    parsed === Just sig
+
+
+prop_schnorrSignatureValidityPreservedOverSerialization :: Property
+prop_schnorrSignatureValidityPreservedOverSerialization = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig <- maybe failure pure $ schnorrSignDeterministic kp msg
+    let serialized = exportSchnorrSignature sig
+    let parsed = importSchnorrSignature serialized
+    parsed === Just sig
+    assert $ schnorrVerify (fst $ keyPairPubKeyXO kp) msg sig
+
+
+prop_schnorrSignatureDeterministic :: Property
+prop_schnorrSignatureDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig1 <- maybe failure pure $ schnorrSignDeterministic kp msg
+    sig2 <- maybe failure pure $ schnorrSignDeterministic kp msg
+    sig1 === sig2
+
+
+prop_schnorrSignatureNonDeterministic :: Property
+prop_schnorrSignatureNonDeterministic = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    sig1 <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    sig2 <- liftIO $ maybe (error "Failed to sign") pure =<< schnorrSignNondeterministic kp msg
+    sig1 /== sig2
+
+
+prop_schnorrSignWithStdGen :: Property
+prop_schnorrSignWithStdGen = property $ do
+    sk <- forAll secKeyGen
+    msg <- forAll $ bytes (singleton 32)
+    let kp = keyPairCreate sk
+    stdGen <- forAll $ mkStdGen <$> integral (linear 0 maxBound)
+    sig1 <- maybe failure pure $ schnorrSign (Just stdGen) kp msg
+    sig2 <- maybe failure pure $ schnorrSign (Just stdGen) kp msg
+    sig1 === sig2
 
 
 tests :: Group

@@ -25,6 +25,7 @@ module Crypto.Secp256k1 (
     KeyPair,
     Signature,
     RecoverableSignature,
+    SchnorrSignature,
     Tweak,
 
     -- * Parsing and Serialization
@@ -40,6 +41,8 @@ module Crypto.Secp256k1 (
     exportSignatureDer,
     importRecoverableSignature,
     exportRecoverableSignature,
+    importSchnorrSignature,
+    exportSchnorrSignature,
     importTweak,
 
     -- * ECDSA Operations
@@ -73,6 +76,8 @@ module Crypto.Secp256k1 (
 
     -- * Schnorr Operations
     schnorrSign,
+    schnorrSignDeterministic,
+    schnorrSignNondeterministic,
     schnorrVerify,
 
     -- * Other
@@ -140,6 +145,7 @@ import Foreign.Storable (Storable (..))
 import GHC.Generics (Generic)
 import GHC.IO.Handle.Text (memcpy)
 import System.IO.Unsafe (unsafePerformIO)
+import System.Random (StdGen, newStdGen, randoms, randomIO)
 import Text.Read (
     Lexeme (String),
     lexP,
@@ -281,6 +287,28 @@ instance Eq Signature where
         (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 64)
 instance NFData Signature where
     rnf Signature{..} = seq signatureFPtr ()
+
+
+-- | Structure containing Schnorr Signature
+newtype SchnorrSignature = SchnorrSignature {schnorrSignatureFPtr :: ForeignPtr Prim.Sig64}
+
+
+instance Show SchnorrSignature where
+    show sig = (B8.unpack . encodeBase16) (exportSchnorrSignature sig)
+instance Read SchnorrSignature where
+    readsPrec i cs = case decodeBase16 $ B8.pack token of
+        Left e -> []
+        Right a -> maybeToList $ (,rest) <$> importSchnorrSignature a
+        where
+            trimmed = dropWhile isSpace cs
+            (token, rest) = span isAlphaNum trimmed
+instance Eq SchnorrSignature where
+    sig == sig' = unsafePerformIO . evalContT $ do
+        sigp <- ContT $ withForeignPtr (schnorrSignatureFPtr sig)
+        sigp' <- ContT $ withForeignPtr (schnorrSignatureFPtr sig')
+        (EQ ==) <$> lift (memCompare (castPtr sigp) (castPtr sigp') 64)
+instance NFData SchnorrSignature where
+    rnf SchnorrSignature{..} = seq schnorrSignatureFPtr ()
 
 
 -- | Structure containing Signature AND recovery ID
@@ -493,6 +521,23 @@ exportRecoverableSignature RecoverableSignature{..} = unsafePerformIO . evalCont
         unsafePackByteString (outBuf, 65)
 
 
+-- | Parses 'SchnorrSignature' from Schnorr (64 byte) representation
+importSchnorrSignature :: ByteString -> Maybe SchnorrSignature
+importSchnorrSignature bs
+    | BS.length bs /= 64 = Nothing
+    | otherwise = unsafePerformIO $ do
+        outBuf <- mallocBytes 64
+        unsafeUseByteString bs $ \(ptr, _) -> do
+            memcpy outBuf ptr 64
+        Just . SchnorrSignature <$> newForeignPtr finalizerFree outBuf
+
+
+-- | Serializes 'SchnorrSignature' to Schnorr (64 byte) representation
+exportSchnorrSignature :: SchnorrSignature -> ByteString
+exportSchnorrSignature (SchnorrSignature fptr) = unsafePerformIO $
+    withForeignPtr fptr $ \ptr -> BS.packCStringLen (castPtr ptr, 64)
+
+
 -- | Parses 'Tweak' from 32 byte @ByteString@. If the @ByteString@ is an invalid 'SecKey' then this will yield @Nothing@
 importTweak :: ByteString -> Maybe Tweak
 importTweak = fmap (Tweak . castForeignPtr . secKeyFPtr) . importSecKey
@@ -700,30 +745,47 @@ keyPairPubKeyXOTweakAdd KeyPair{..} Tweak{..} = unsafePerformIO . evalContT $ do
             else free keyPairOut $> Nothing
 
 
--- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get a @Just@ out of this
--- function
-schnorrSign :: KeyPair -> ByteString -> Maybe Signature
-schnorrSign KeyPair{..} bs
+-- | Compute a schnorr signature using a 'KeyPair'. The @ByteString@ must be 32 bytes long to get 
+-- a @Just@ out of this function. Optionally takes a 'StdGen' for deterministic signing.
+schnorrSign :: Maybe StdGen -> KeyPair -> ByteString -> Maybe SchnorrSignature
+schnorrSign mGen KeyPair{..} bs
     | BS.length bs /= 32 = Nothing
     | otherwise = unsafePerformIO . evalContT $ do
         (msgHashPtr, _) <- ContT (unsafeUseByteString bs)
         keyPairPtr <- ContT (withForeignPtr keyPairFPtr)
         lift $ do
             sigBuf <- mallocBytes 64
-            -- TODO: provide randomness here instead of supplying a null pointer
-            ret <- Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr nullPtr
+            ret <- case mGen of
+                Just gen -> do
+                    let randomBytes = BS.pack $ Prelude.take 32 $ randoms gen
+                    BS.useAsCStringLen randomBytes $ \(ptr, _) ->
+                        Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr (castPtr ptr)
+                Nothing ->
+                    Prim.schnorrsigSign ctx sigBuf msgHashPtr keyPairPtr nullPtr
             if isSuccess ret
-                then Just . Signature <$> newForeignPtr finalizerFree sigBuf
-                else free sigBuf $> Nothing
+                then Just . SchnorrSignature <$> newForeignPtr finalizerFree sigBuf
+                else do
+                    free sigBuf
+                    return Nothing
+
+
+-- | Compute a deterministic schnorr signature using a 'KeyPair'.
+schnorrSignDeterministic :: KeyPair -> ByteString -> Maybe SchnorrSignature
+schnorrSignDeterministic = schnorrSign Nothing
+
+
+-- | Compute a non-deterministic schnorr signature using a 'KeyPair'.
+schnorrSignNondeterministic :: KeyPair -> ByteString -> IO (Maybe SchnorrSignature)
+schnorrSignNondeterministic kp bs = newStdGen >>= \gen -> pure $ schnorrSign (Just gen) kp bs
 
 
 -- | Verify the authenticity of a schnorr signature. @True@ means the 'Signature' is correct.
-schnorrVerify :: PubKeyXO -> ByteString -> Signature -> Bool
-schnorrVerify PubKeyXO{..} bs Signature{..} = unsafePerformIO . evalContT $ do
+schnorrVerify :: PubKeyXO -> ByteString -> SchnorrSignature -> Bool
+schnorrVerify PubKeyXO{..} bs SchnorrSignature{..} = unsafePerformIO . evalContT $ do
     pubKeyPtr <- ContT (withForeignPtr pubKeyXOFPtr)
-    signaturePtr <- ContT (withForeignPtr signatureFPtr)
+    schnorrSignaturePtr <- ContT (withForeignPtr schnorrSignatureFPtr)
     (msgPtr, msgLen) <- ContT (unsafeUseByteString bs)
-    lift $ isSuccess <$> Prim.schnorrsigSignVerify ctx signaturePtr msgPtr msgLen pubKeyPtr
+    lift $ isSuccess <$> Prim.schnorrsigSignVerify ctx schnorrSignaturePtr msgPtr msgLen pubKeyPtr
 
 
 -- | Generate a tagged sha256 digest as specified in BIP340
