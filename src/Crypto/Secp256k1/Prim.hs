@@ -302,8 +302,12 @@ foreign import capi safe "secp256k1.h secp256k1_context_destroy"
 --  type serialization/parsing functions which require a context object to maintain
 --  API consistency, but currently do not require expensive precomputations or dynamic
 --  allocations.
-foreign import ccall unsafe "secp256k1.h secp256k1_context_no_precomp"
-    contextNoPrecomp :: Ctx
+foreign import ccall unsafe "hs_secp256k1_content_static"
+    c_contextStatic :: IO Ctx
+
+{-# NOINLINE contextStatic #-}
+contextStatic :: Ctx
+contextStatic = unsafePerformIO c_contextStatic
 
 
 -- | Copy a secp256k1 context object into caller-provided memory.
@@ -445,7 +449,7 @@ foreign import capi safe "secp256k1.h secp256k1_context_set_error_callback"
 --  undefined.
 --
 --  When this function has not been called (or called with fn==NULL), then the
---  default handler will be used. The library provides a default handler which
+--  default handler will be used. The library provides a default handler which
 --  writes the message to stderr and calls abort. This default handler can be
 --  replaced at link time if the preprocessor macro
 --  USE_EXTERNAL_DEFAULT_CALLBACKS is defined, which is the case if the build
