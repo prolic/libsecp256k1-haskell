@@ -46,17 +46,17 @@ jobs:
     name: Build
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b
+      - uses: actions/checkout@v4
         name: Checkout
 
-      - uses: actions/checkout@0ad4b8fadaa221de15dcec353f45205ec38ea70b
+      - uses: actions/checkout@v4
         name: Checkout bitcoin-core/secp256k1
         with:
           repository: bitcoin-core/secp256k1
-          ref: 1ad5185cd42c0636104129fcc9f6a4bf9c67cc40
+          ref: v0.5.1
           path: lib/secp256k1
 
-      - uses: haskell-actions/setup@64aa5146ed5bd91f181552b8b5fbe50fbd2bd3fe
+      - uses: haskell-actions/setup@v2
         name: Setup Haskell
         id: setup-haskell
         with:
@@ -65,7 +65,7 @@ jobs:
 
       - name: Cache
         id: cache
-        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9
+        uses: actions/cache@v4.2.3
         with:
           path: |
             ${{ steps.setup-haskell.outputs.stack-root }}
